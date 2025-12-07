@@ -16,12 +16,39 @@ public class TranslationService : ITranslationService
     {
         _configService = configService;
         _loggingService = loggingService;
-        var handler = new HttpClientHandler
+        
+        // استفاده از SocketsHttpHandler برای کنترل بهتر روی اتصالات
+        var socketsHandler = new SocketsHttpHandler
         {
             UseProxy = false,            // مهم: از پراکسی سیستم استفاده نکن
-            Proxy = null
+            Proxy = null,
+            // حل مشکل تاخیر 30 ثانیه‌ای localhost در ویندوز
+            // با اولویت دادن به IPv4 به جای IPv6
+            ConnectCallback = async (context, cancellationToken) =>
+            {
+                var socket = new System.Net.Sockets.Socket(
+                    System.Net.Sockets.AddressFamily.InterNetwork, // فقط IPv4
+                    System.Net.Sockets.SocketType.Stream,
+                    System.Net.Sockets.ProtocolType.Tcp);
+                
+                socket.NoDelay = true; // غیرفعال کردن الگوریتم Nagle برای کاهش تاخیر
+                
+                try
+                {
+                    await socket.ConnectAsync(context.DnsEndPoint, cancellationToken).ConfigureAwait(false);
+                    return new System.Net.Sockets.NetworkStream(socket, ownsSocket: true);
+                }
+                catch
+                {
+                    socket.Dispose();
+                    throw;
+                }
+            },
+            PooledConnectionLifetime = TimeSpan.FromMinutes(2), // بازیافت اتصالات قدیمی
+            PooledConnectionIdleTimeout = TimeSpan.FromMinutes(1)
         };
-        _httpClient = new HttpClient(handler)
+        
+        _httpClient = new HttpClient(socketsHandler)
         {
             Timeout = TimeSpan.FromMinutes(_configService.Config.Api.TimeoutMinutes)
         };
