@@ -23,6 +23,13 @@ public class AudioPlayer : IDisposable
         try
         {
             Stop();
+            
+            // Check if file exists
+            if (!File.Exists(audioFilePath))
+            {
+                throw new FileNotFoundException($"Audio file not found: {audioFilePath}");
+            }
+
             _playbackCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             _isPlaying = true;
 
@@ -62,11 +69,26 @@ public class AudioPlayer : IDisposable
 
     private async Task PlayWavAsync(string audioFilePath, CancellationToken cancellationToken)
     {
-        await Task.Run(() =>
+        using var player = new SoundPlayer(audioFilePath);
+        player.Load(); // Load the file first
+        
+        // Play in a separate task to support cancellation
+        var playTask = Task.Run(() =>
         {
-            using var player = new SoundPlayer(audioFilePath);
             player.PlaySync();
-        }, cancellationToken);
+        }, CancellationToken.None); // Don't pass cancellation to PlaySync as it doesn't support it
+
+        // Wait for either completion or cancellation
+        var completedTask = await Task.WhenAny(playTask, Task.Delay(Timeout.Infinite, cancellationToken));
+        
+        if (completedTask != playTask)
+        {
+            // Cancellation was requested
+            player.Stop();
+            cancellationToken.ThrowIfCancellationRequested();
+        }
+        
+        await playTask; // Ensure the play task completes
     }
 
     private async Task PlayWithMciAsync(string audioFilePath, CancellationToken cancellationToken)
@@ -90,31 +112,45 @@ public class AudioPlayer : IDisposable
             
             if (result != 0)
             {
+                // Close before throwing
+                mciSendString($"close {alias}", null, 0, IntPtr.Zero);
                 throw new InvalidOperationException($"Failed to play audio. MCI error code: {result}");
             }
 
             // Wait for playback to complete or cancellation
-            await Task.Run(async () =>
+            try
             {
                 while (!cancellationToken.IsCancellationRequested)
                 {
                     var statusBuffer = new System.Text.StringBuilder(128);
                     var statusCommand = $"status {alias} mode";
-                    mciSendString(statusCommand, statusBuffer, statusBuffer.Capacity, IntPtr.Zero);
+                    var statusResult = mciSendString(statusCommand, statusBuffer, statusBuffer.Capacity, IntPtr.Zero);
                     
-                    var status = statusBuffer.ToString().Trim();
-                    if (status == "stopped")
+                    if (statusResult != 0)
+                    {
+                        // Error getting status, assume stopped
+                        break;
+                    }
+                    
+                    var status = statusBuffer.ToString().Trim().ToLower();
+                    if (status == "stopped" || status == "")
                     {
                         break;
                     }
 
                     await Task.Delay(100, cancellationToken);
                 }
-            }, cancellationToken);
+            }
+            catch (OperationCanceledException)
+            {
+                // Stop playback on cancellation
+                mciSendString($"stop {alias}", null, 0, IntPtr.Zero);
+                throw;
+            }
         }
         finally
         {
-            // Close the audio file
+            // Always close the audio file
             var closeCommand = $"close {alias}";
             mciSendString(closeCommand, null, 0, IntPtr.Zero);
         }
