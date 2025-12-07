@@ -1,0 +1,95 @@
+using AiTranslator.Forms;
+using AiTranslator.Services;
+using AiTranslator.Utilities;
+
+namespace AiTranslator;
+
+static class Program
+{
+    private const string AppGuid = "8B5C4F2E-9D3A-4E1B-A7F6-3C9E8D2F1A5B";
+
+    /// <summary>
+    ///  The main entry point for the application.
+    /// </summary>
+    [STAThread]
+    static void Main()
+    {
+        // Single instance enforcement
+        using var singleInstance = new SingleInstanceManager(AppGuid);
+        
+        if (!singleInstance.IsFirstInstance)
+        {
+            // Another instance is running, bring it to front and exit
+            SingleInstanceManager.BringExistingInstanceToFront();
+            return;
+        }
+
+        // Initialize application configuration
+        ApplicationConfiguration.Initialize();
+
+        try
+        {
+            // Initialize services (Dependency Injection by hand)
+            var configService = new ConfigService();
+            var loggingService = new LoggingService(configService);
+            
+            loggingService.LogInformation("Application starting");
+
+            var languageDetector = new LanguageDetector();
+            var translationService = new TranslationService(configService, loggingService);
+            var ttsService = new TtsService(configService, loggingService);
+            
+            var hotkeyManager = new HotkeyManager();
+            var clipboardManager = new ClipboardManager();
+            var notificationService = new NotificationService(configService);
+            
+            var hotkeyActions = new HotkeyActions(
+                translationService,
+                ttsService,
+                languageDetector,
+                configService,
+                loggingService,
+                notificationService,
+                clipboardManager
+            );
+
+            var mainForm = new MainForm(
+                configService,
+                translationService,
+                ttsService,
+                languageDetector,
+                loggingService,
+                hotkeyManager,
+                clipboardManager
+            );
+
+            var appContext = new ApplicationContext(
+                mainForm,
+                hotkeyManager,
+                hotkeyActions,
+                configService,
+                loggingService,
+                notificationService
+            );
+
+            // Set up auto-start if configured
+            if (configService.Config.StartWithWindows && !AutoStartManager.IsAutoStartEnabled())
+            {
+                AutoStartManager.SetAutoStart(true);
+            }
+
+            Application.Run(appContext);
+
+            loggingService.LogInformation("Application exiting normally");
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(
+                $"Fatal error: {ex.Message}\n\nPlease check the logs for details.",
+                "Application Error",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Error
+            );
+        }
+    }
+}
