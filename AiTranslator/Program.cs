@@ -37,7 +37,12 @@ static class Program
 
             var languageDetector = new LanguageDetector();
             var translationService = new TranslationService(configService, loggingService);
-            var ttsService = new TtsService(configService, loggingService);
+            
+            // Initialize TTS components
+            var ttsCacheManager = new TtsCacheManager(configService, loggingService);
+            var audioPlayer = new AudioPlayer(loggingService);
+            var ttsProviderFactory = new TtsProviderFactory(configService, loggingService, ttsCacheManager, audioPlayer);
+            var ttsService = new TtsService(ttsProviderFactory, loggingService);
             
             var hotkeyManager = new HotkeyManager();
             var clipboardManager = new ClipboardManager();

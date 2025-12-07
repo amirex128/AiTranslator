@@ -49,7 +49,8 @@ public class HotkeyActions
                 _ttsService,
                 _languageDetector,
                 _configService,
-                _loggingService
+                _loggingService,
+                _clipboardManager
             );
 
             popup.ShowPopup(clipboardText, type);
@@ -152,7 +153,12 @@ public class HotkeyActions
     {
         try
         {
-            var selectionForm = new SelectionForm(options, _configService);
+            var selectionForm = new SelectionForm(
+                options, 
+                _configService, 
+                _ttsService, 
+                _languageDetector, 
+                _loggingService);
             selectionForm.ShowDialog();
         }
         catch (Exception ex)

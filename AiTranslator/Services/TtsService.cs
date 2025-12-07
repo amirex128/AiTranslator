@@ -2,68 +2,56 @@ namespace AiTranslator.Services;
 
 public class TtsService : ITtsService
 {
-    private readonly IConfigService _configService;
+    private readonly TtsProviderFactory _providerFactory;
     private readonly ILoggingService _loggingService;
     private CancellationTokenSource? _currentPlaybackCancellation;
 
     public TtsService(
-        IConfigService configService,
+        TtsProviderFactory providerFactory,
         ILoggingService loggingService)
     {
-        _configService = configService;
+        _providerFactory = providerFactory;
         _loggingService = loggingService;
     }
 
     public async Task ReadPersianAsync(string text, CancellationToken cancellationToken = default)
     {
-        StopReading();
-
-        var endpoint = _configService.Config.TtsEndpoints.Persian;
-        if (string.IsNullOrWhiteSpace(endpoint))
-        {
-            _loggingService.LogWarning("Persian TTS endpoint not configured");
-            return;
-        }
-
-        await ReadTextAsync(endpoint, text, "Persian", cancellationToken);
+        await ReadTextAsync(text, "Persian", cancellationToken);
     }
 
     public async Task ReadEnglishAsync(string text, CancellationToken cancellationToken = default)
     {
-        StopReading();
-
-        var endpoint = _configService.Config.TtsEndpoints.English;
-        if (string.IsNullOrWhiteSpace(endpoint))
-        {
-            _loggingService.LogWarning("English TTS endpoint not configured");
-            return;
-        }
-
-        await ReadTextAsync(endpoint, text, "English", cancellationToken);
+        await ReadTextAsync(text, "English", cancellationToken);
     }
 
-    private async Task ReadTextAsync(string endpoint, string text, string language, CancellationToken cancellationToken)
+    private async Task ReadTextAsync(string text, string language, CancellationToken cancellationToken)
     {
+        StopReading();
         _currentPlaybackCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
 
         try
         {
             _loggingService.LogInformation($"Starting {language} TTS playback");
+
+            var provider = _providerFactory.GetProvider();
             
-            // TODO: Implement actual TTS API call when endpoints are provided
-            // For now, this is just a skeleton implementation
+            // Generate speech audio file
+            var audioFilePath = await provider.GenerateSpeechAsync(text, language, _currentPlaybackCancellation.Token);
             
-            await Task.Delay(100, _currentPlaybackCancellation.Token);
+            // Play audio file
+            await provider.PlayAudioAsync(audioFilePath, _currentPlaybackCancellation.Token);
             
             _loggingService.LogInformation($"{language} TTS playback completed");
         }
         catch (OperationCanceledException)
         {
-            _loggingService.LogInformation($"{language} TTS playback stopped");
+            _loggingService.LogInformation($"{language} TTS playback cancelled");
+            throw;
         }
         catch (Exception ex)
         {
             _loggingService.LogError($"{language} TTS playback error", ex);
+            throw;
         }
         finally
         {
@@ -78,6 +66,8 @@ public class TtsService : ITtsService
         {
             _currentPlaybackCancellation.Cancel();
         }
+        
+        _providerFactory.StopAllProviders();
     }
 }
 

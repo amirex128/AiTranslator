@@ -13,8 +13,6 @@ public class SettingsForm : Form
     private TextBox enToFaEndpointTextBox = null!;
     private TextBox faToEnEndpointTextBox = null!;
     private TextBox grammarFixEndpointTextBox = null!;
-    private TextBox persianTtsEndpointTextBox = null!;
-    private TextBox englishTtsEndpointTextBox = null!;
     
     // UI Preferences Tab
     private NumericUpDown popupTimeoutNumeric = null!;
@@ -31,6 +29,12 @@ public class SettingsForm : Form
     private NumericUpDown retryCountNumeric = null!;
     private ComboBox logLevelComboBox = null!;
     private CheckBox enableLoggingCheckBox = null!;
+    private ComboBox ttsProviderComboBox = null!;
+    private TextBox localAIEndpointTextBox = null!;
+    private TextBox localAIModelTextBox = null!;
+    private ComboBox localAIFormatComboBox = null!;
+    private NumericUpDown cacheExpirationDaysNumeric = null!;
+    private Button clearCacheButton = null!;
     
     private Button saveButton = null!;
     private Button cancelButton = null!;
@@ -154,38 +158,6 @@ public class SettingsForm : Form
         };
         panel.Controls.Add(grammarFixLabel);
         panel.Controls.Add(grammarFixEndpointTextBox);
-        y += 50;
-
-        // Persian TTS Endpoint
-        var persianTtsLabel = new Label
-        {
-            Text = "Persian TTS Endpoint:",
-            Location = new Point(10, y),
-            Size = new Size(200, 20)
-        };
-        persianTtsEndpointTextBox = new TextBox
-        {
-            Location = new Point(10, y + 20),
-            Size = new Size(540, 20)
-        };
-        panel.Controls.Add(persianTtsLabel);
-        panel.Controls.Add(persianTtsEndpointTextBox);
-        y += 50;
-
-        // English TTS Endpoint
-        var englishTtsLabel = new Label
-        {
-            Text = "English TTS Endpoint:",
-            Location = new Point(10, y),
-            Size = new Size(200, 20)
-        };
-        englishTtsEndpointTextBox = new TextBox
-        {
-            Location = new Point(10, y + 20),
-            Size = new Size(540, 20)
-        };
-        panel.Controls.Add(englishTtsLabel);
-        panel.Controls.Add(englishTtsEndpointTextBox);
 
         tab.Controls.Add(panel);
         return tab;
@@ -341,9 +313,150 @@ public class SettingsForm : Form
     private TabPage CreateAdvancedTab()
     {
         var tab = new TabPage("Advanced");
-        var panel = new Panel { Dock = DockStyle.Fill, Padding = new Padding(10) };
+        var panel = new Panel { Dock = DockStyle.Fill, Padding = new Padding(10), AutoScroll = true };
 
         int y = 10;
+
+        // TTS Settings Section
+        var ttsSectionLabel = new Label
+        {
+            Text = "Text-to-Speech Settings:",
+            Location = new Point(10, y),
+            Size = new Size(300, 20),
+            Font = new Font("Segoe UI", 9F, FontStyle.Bold)
+        };
+        panel.Controls.Add(ttsSectionLabel);
+        y += 30;
+
+        // TTS Provider
+        var ttsProviderLabel = new Label
+        {
+            Text = "TTS Provider:",
+            Location = new Point(10, y),
+            Size = new Size(200, 20)
+        };
+        ttsProviderComboBox = new ComboBox
+        {
+            Location = new Point(220, y),
+            Size = new Size(150, 20),
+            DropDownStyle = ComboBoxStyle.DropDownList
+        };
+        ttsProviderComboBox.Items.AddRange(new object[] { "Google", "LocalAI" });
+        ttsProviderComboBox.SelectedIndex = 0;
+        ttsProviderComboBox.SelectedIndexChanged += OnTtsProviderChanged;
+        panel.Controls.Add(ttsProviderLabel);
+        panel.Controls.Add(ttsProviderComboBox);
+        y += 40;
+
+        // LocalAI Endpoint
+        var localAIEndpointLabel = new Label
+        {
+            Text = "LocalAI Endpoint:",
+            Location = new Point(10, y),
+            Size = new Size(200, 20)
+        };
+        localAIEndpointTextBox = new TextBox
+        {
+            Location = new Point(10, y + 20),
+            Size = new Size(540, 20),
+            Text = "http://127.0.0.1:3002/tts"
+        };
+        panel.Controls.Add(localAIEndpointLabel);
+        panel.Controls.Add(localAIEndpointTextBox);
+        y += 50;
+
+        // LocalAI Model
+        var localAIModelLabel = new Label
+        {
+            Text = "LocalAI Model:",
+            Location = new Point(10, y),
+            Size = new Size(200, 20)
+        };
+        localAIModelTextBox = new TextBox
+        {
+            Location = new Point(220, y),
+            Size = new Size(200, 20),
+            Text = "tts-english"
+        };
+        panel.Controls.Add(localAIModelLabel);
+        panel.Controls.Add(localAIModelTextBox);
+        y += 40;
+
+        // LocalAI Response Format
+        var localAIFormatLabel = new Label
+        {
+            Text = "LocalAI Response Format:",
+            Location = new Point(10, y),
+            Size = new Size(200, 20)
+        };
+        localAIFormatComboBox = new ComboBox
+        {
+            Location = new Point(220, y),
+            Size = new Size(150, 20),
+            DropDownStyle = ComboBoxStyle.DropDownList
+        };
+        localAIFormatComboBox.Items.AddRange(new object[] { "wav", "mp3", "aac", "flac", "opus" });
+        localAIFormatComboBox.SelectedIndex = 0;
+        panel.Controls.Add(localAIFormatLabel);
+        panel.Controls.Add(localAIFormatComboBox);
+        y += 40;
+
+        // Cache Expiration Days
+        var cacheExpirationLabel = new Label
+        {
+            Text = "Cache Expiration (days):",
+            Location = new Point(10, y),
+            Size = new Size(200, 20)
+        };
+        cacheExpirationDaysNumeric = new NumericUpDown
+        {
+            Location = new Point(220, y),
+            Size = new Size(100, 20),
+            Minimum = 1,
+            Maximum = 365,
+            Value = 30
+        };
+        panel.Controls.Add(cacheExpirationLabel);
+        panel.Controls.Add(cacheExpirationDaysNumeric);
+        y += 40;
+
+        // Clear Cache Button
+        clearCacheButton = new Button
+        {
+            Text = "Clear TTS Cache",
+            Location = new Point(10, y),
+            Size = new Size(150, 30),
+            BackColor = Color.FromArgb(220, 53, 69),
+            ForeColor = Color.White,
+            FlatStyle = FlatStyle.Flat,
+            Cursor = Cursors.Hand
+        };
+        clearCacheButton.FlatAppearance.BorderSize = 0;
+        clearCacheButton.Click += OnClearCacheButtonClick;
+        panel.Controls.Add(clearCacheButton);
+        y += 50;
+
+        // Separator
+        var separator = new Label
+        {
+            Text = "",
+            Location = new Point(10, y),
+            Size = new Size(540, 2),
+            BorderStyle = BorderStyle.Fixed3D
+        };
+        panel.Controls.Add(separator);
+        y += 20;
+
+        // API Settings Section
+        var apiSectionLabel = new Label
+        {
+            Text = "API Settings:",
+            Location = new Point(10, y),
+            Size = new Size(300, 20),
+            Font = new Font("Segoe UI", 9F, FontStyle.Bold)
+        };
+        panel.Controls.Add(apiSectionLabel);
+        y += 30;
 
         // API Timeout
         var timeoutLabel = new Label
@@ -381,7 +494,29 @@ public class SettingsForm : Form
         };
         panel.Controls.Add(retryLabel);
         panel.Controls.Add(retryCountNumeric);
-        y += 40;
+        y += 50;
+
+        // Separator
+        var separator2 = new Label
+        {
+            Text = "",
+            Location = new Point(10, y),
+            Size = new Size(540, 2),
+            BorderStyle = BorderStyle.Fixed3D
+        };
+        panel.Controls.Add(separator2);
+        y += 20;
+
+        // Logging Settings Section
+        var loggingSectionLabel = new Label
+        {
+            Text = "Logging Settings:",
+            Location = new Point(10, y),
+            Size = new Size(300, 20),
+            Font = new Font("Segoe UI", 9F, FontStyle.Bold)
+        };
+        panel.Controls.Add(loggingSectionLabel);
+        y += 30;
 
         // Enable Logging
         enableLoggingCheckBox = new CheckBox
@@ -416,6 +551,14 @@ public class SettingsForm : Form
         return tab;
     }
 
+    private void OnTtsProviderChanged(object? sender, EventArgs e)
+    {
+        var isLocalAI = ttsProviderComboBox.SelectedItem?.ToString() == "LocalAI";
+        localAIEndpointTextBox.Enabled = isLocalAI;
+        localAIModelTextBox.Enabled = isLocalAI;
+        localAIFormatComboBox.Enabled = isLocalAI;
+    }
+
     private void LoadSettings()
     {
         var config = _configService.Config;
@@ -424,8 +567,6 @@ public class SettingsForm : Form
         enToFaEndpointTextBox.Text = config.ApiEndpoints.EnglishToPersian;
         faToEnEndpointTextBox.Text = config.ApiEndpoints.PersianToEnglish;
         grammarFixEndpointTextBox.Text = config.ApiEndpoints.GrammarFix;
-        persianTtsEndpointTextBox.Text = config.TtsEndpoints.Persian;
-        englishTtsEndpointTextBox.Text = config.TtsEndpoints.English;
 
         // UI Preferences
         popupTimeoutNumeric.Value = config.Ui.PopupAutoCloseSeconds;
@@ -437,9 +578,19 @@ public class SettingsForm : Form
         popupFontSizeNumeric.Value = (decimal)config.Ui.PopupFontSize;
         selectionFormFontSizeNumeric.Value = (decimal)config.Ui.SelectionFormFontSize;
 
-        // Advanced
+        // Advanced - TTS Settings
+        ttsProviderComboBox.SelectedItem = config.TtsSettings.Provider.ToString();
+        localAIEndpointTextBox.Text = config.TtsSettings.LocalAIEndpoint;
+        localAIModelTextBox.Text = config.TtsSettings.LocalAIModel;
+        localAIFormatComboBox.SelectedItem = config.TtsSettings.LocalAIResponseFormat;
+        cacheExpirationDaysNumeric.Value = config.TtsSettings.CacheExpirationDays;
+        OnTtsProviderChanged(null, EventArgs.Empty); // Update enabled state
+
+        // Advanced - API Settings
         timeoutMinutesNumeric.Value = config.Api.TimeoutMinutes;
         retryCountNumeric.Value = config.Api.RetryCount;
+        
+        // Advanced - Logging Settings
         enableLoggingCheckBox.Checked = config.Logging.EnableLogging;
         logLevelComboBox.SelectedItem = config.Logging.LogLevel;
     }
@@ -452,8 +603,6 @@ public class SettingsForm : Form
         config.ApiEndpoints.EnglishToPersian = enToFaEndpointTextBox.Text;
         config.ApiEndpoints.PersianToEnglish = faToEnEndpointTextBox.Text;
         config.ApiEndpoints.GrammarFix = grammarFixEndpointTextBox.Text;
-        config.TtsEndpoints.Persian = persianTtsEndpointTextBox.Text;
-        config.TtsEndpoints.English = englishTtsEndpointTextBox.Text;
 
         // UI Preferences
         config.Ui.PopupAutoCloseSeconds = (int)popupTimeoutNumeric.Value;
@@ -465,9 +614,19 @@ public class SettingsForm : Form
         config.Ui.PopupFontSize = (float)popupFontSizeNumeric.Value;
         config.Ui.SelectionFormFontSize = (float)selectionFormFontSizeNumeric.Value;
 
-        // Advanced
+        // Advanced - TTS Settings
+        var selectedProvider = ttsProviderComboBox.SelectedItem?.ToString() ?? "Google";
+        config.TtsSettings.Provider = Enum.Parse<TtsProvider>(selectedProvider);
+        config.TtsSettings.LocalAIEndpoint = localAIEndpointTextBox.Text;
+        config.TtsSettings.LocalAIModel = localAIModelTextBox.Text;
+        config.TtsSettings.LocalAIResponseFormat = localAIFormatComboBox.SelectedItem?.ToString() ?? "wav";
+        config.TtsSettings.CacheExpirationDays = (int)cacheExpirationDaysNumeric.Value;
+
+        // Advanced - API Settings
         config.Api.TimeoutMinutes = (int)timeoutMinutesNumeric.Value;
         config.Api.RetryCount = (int)retryCountNumeric.Value;
+        
+        // Advanced - Logging Settings
         config.Logging.EnableLogging = enableLoggingCheckBox.Checked;
         config.Logging.LogLevel = logLevelComboBox.SelectedItem?.ToString() ?? "Information";
 
@@ -483,6 +642,29 @@ public class SettingsForm : Form
         catch (Exception ex)
         {
             MessageBox.Show($"Error saving settings: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+    }
+
+    private void OnClearCacheButtonClick(object? sender, EventArgs e)
+    {
+        var result = MessageBox.Show(
+            "Are you sure you want to clear all TTS cache? This will delete all cached audio files.",
+            "Clear TTS Cache",
+            MessageBoxButtons.YesNo,
+            MessageBoxIcon.Question);
+
+        if (result == DialogResult.Yes)
+        {
+            try
+            {
+                var cacheManager = new TtsCacheManager(_configService, new LoggingService(_configService));
+                cacheManager.ClearAllCache();
+                MessageBox.Show("TTS cache cleared successfully.", "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Error clearing cache: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
         }
     }
 }

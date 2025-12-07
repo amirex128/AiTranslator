@@ -18,6 +18,7 @@ public partial class MainForm : Form
     private TextBox? _activeTextBox;
     private int _resultTabCounter = 0;
     private bool _isClosing = false;
+    private bool _isSelectingBoxToRead = false;
 
     public MainForm(
         IConfigService configService,
@@ -316,6 +317,28 @@ public partial class MainForm : Form
 
     private async void OnReadButtonClick(object? sender, EventArgs e)
     {
+        // Check if we have result tabs with multiple boxes
+        if (resultTabControl.TabCount > 0 && resultTabControl.SelectedTab != null)
+        {
+            var selectedTab = resultTabControl.SelectedTab;
+            var resultsPanel = FindResultsPanel(selectedTab);
+            
+            if (resultsPanel != null && resultsPanel.Controls.Count > 1)
+            {
+                // Multiple boxes - enter selection mode
+                if (!_isSelectingBoxToRead)
+                {
+                    EnterBoxSelectionMode(resultsPanel);
+                }
+                else
+                {
+                    ExitBoxSelectionMode(resultsPanel);
+                }
+                return;
+            }
+        }
+
+        // Fallback: read from active input
         var activeInput = GetActiveInput();
         if (activeInput.textBox == null || string.IsNullOrWhiteSpace(activeInput.textBox.Text))
         {
@@ -324,6 +347,58 @@ public partial class MainForm : Form
         }
 
         await ReadTextAsync(activeInput.textBox.Text);
+    }
+
+    private Panel? FindResultsPanel(TabPage tabPage)
+    {
+        foreach (Control control in tabPage.Controls)
+        {
+            if (control is Panel panel)
+            {
+                foreach (Control innerControl in panel.Controls)
+                {
+                    if (innerControl is Panel innerPanel && innerPanel.AutoScroll)
+                    {
+                        return innerPanel;
+                    }
+                }
+            }
+        }
+        return null;
+    }
+
+    private void EnterBoxSelectionMode(Panel resultsPanel)
+    {
+        _isSelectingBoxToRead = true;
+        readButton.Text = "Cancel Selection";
+        readButton.BackColor = Color.Orange;
+        UpdateStatus("Click on a box to read it");
+
+        // Highlight all result boxes
+        foreach (Control control in resultsPanel.Controls)
+        {
+            if (control is TextBox textBox)
+            {
+                textBox.BorderStyle = BorderStyle.Fixed3D;
+            }
+        }
+    }
+
+    private void ExitBoxSelectionMode(Panel resultsPanel)
+    {
+        _isSelectingBoxToRead = false;
+        readButton.Text = "Read";
+        readButton.BackColor = UIConstants.Colors.Secondary;
+        UpdateStatus("Selection cancelled");
+
+        // Remove highlight from all result boxes
+        foreach (Control control in resultsPanel.Controls)
+        {
+            if (control is TextBox textBox)
+            {
+                textBox.BorderStyle = BorderStyle.FixedSingle;
+            }
+        }
     }
 
     private void OnCancelButtonClick(object? sender, EventArgs e)
@@ -576,50 +651,193 @@ public partial class MainForm : Form
             Height = 20
         };
         
-        var sourceTextBox = new TextBox 
-        { 
-            Dock = DockStyle.Top, 
-            Text = sourceText, 
-            Multiline = true, 
-            ReadOnly = true,
-            Height = 40,
-            ScrollBars = ScrollBars.Vertical,
-            Font = font
-        };
-        
-        var resultLabel = new Label 
+        var translationLabel = new Label 
         { 
             Dock = DockStyle.Top, 
             Text = "Translation:", 
             Font = labelFont,
             Height = 20
         };
-        
-        var resultTextBox = new TextBox 
-        { 
-            Dock = DockStyle.Fill, 
-            Text = resultText, 
-            Multiline = true, 
-            ReadOnly = true,
-            ScrollBars = ScrollBars.Vertical,
-            Font = font
+
+        // Parse result text by %%%%% separator
+        var results = ParseTranslationOptions(resultText);
+
+        // Create results panel with auto-scroll
+        var resultsPanel = new Panel
+        {
+            Dock = DockStyle.Fill,
+            AutoScroll = true,
+            BackColor = Color.White,
+            Padding = new Padding(5)
         };
 
-        // Set RTL if needed
-        var language = _languageDetector.DetectLanguage(resultText);
-        if (language == Language.Persian)
+        if (results.Count > 1)
         {
-            resultTextBox.RightToLeft = RightToLeft.Yes;
+            // Multiple results - create boxes like in TranslationPopupForm
+            DisplayResultsInPanel(resultsPanel, results, font);
+        }
+        else
+        {
+            // Single result - create a single TextBox (backward compatible)
+            var resultTextBox = new TextBox 
+            { 
+                Dock = DockStyle.Fill, 
+                Text = resultText, 
+                Multiline = true, 
+                ReadOnly = true,
+                ScrollBars = ScrollBars.Vertical,
+                Font = font
+            };
+
+            // Set RTL if needed
+            var language = _languageDetector.DetectLanguage(resultText);
+            if (language == Language.Persian)
+            {
+                resultTextBox.RightToLeft = RightToLeft.Yes;
+            }
+
+            resultsPanel.Controls.Add(resultTextBox);
         }
 
-        panel.Controls.Add(resultTextBox);
-        panel.Controls.Add(resultLabel);
-        panel.Controls.Add(sourceTextBox);
+        panel.Controls.Add(resultsPanel);
+        panel.Controls.Add(translationLabel);
         panel.Controls.Add(sourceLabel);
         
         tabPage.Controls.Add(panel);
         resultTabControl.TabPages.Add(tabPage);
         resultTabControl.SelectedTab = tabPage;
+    }
+
+    private List<string> ParseTranslationOptions(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return new List<string> { text };
+
+        // Split by %%%%% separator
+        var options = text.Split(new[] { "%%%%%" }, StringSplitOptions.RemoveEmptyEntries)
+                          .Select(o => o.Trim())
+                          .Where(o => !string.IsNullOrWhiteSpace(o))
+                          .ToList();
+
+        return options.Count > 0 ? options : new List<string> { text };
+    }
+
+    private void DisplayResultsInPanel(Panel resultsPanel, List<string> results, Font font)
+    {
+        resultsPanel.Controls.Clear();
+
+        if (results.Count == 0)
+            return;
+
+        var spacing = 10;
+        var yPosition = spacing;
+
+        for (int i = 0; i < results.Count; i++)
+        {
+            var result = results[i];
+            var language = _languageDetector.DetectLanguage(result);
+            var originalColor = i % 2 == 0 ? Color.LightYellow : Color.LightBlue;
+
+            // Create a container panel for each result
+            var resultBox = new TextBox
+            {
+                Multiline = true,
+                ReadOnly = true,
+                Text = result,
+                Font = font,
+                BackColor = originalColor,
+                BorderStyle = BorderStyle.FixedSingle,
+                ScrollBars = ScrollBars.Vertical,
+                RightToLeft = language == Language.Persian ? RightToLeft.Yes : RightToLeft.No,
+                Cursor = Cursors.Hand,
+                Location = new Point(spacing, yPosition),
+                Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
+                Width = resultsPanel.ClientSize.Width - (spacing * 2) - SystemInformation.VerticalScrollBarWidth,
+                Height = Math.Min(150, GetTextHeight(result, font, resultsPanel.ClientSize.Width - (spacing * 2) - SystemInformation.VerticalScrollBarWidth))
+            };
+
+            var originalColorForClosure = originalColor;
+
+            // Add click handler to copy to clipboard or read
+            resultBox.Click += async (s, e) =>
+            {
+                if (_isSelectingBoxToRead)
+                {
+                    var panel = FindResultsPanel(resultTabControl.SelectedTab!);
+                    if (panel != null)
+                    {
+                        ExitBoxSelectionMode(panel);
+                    }
+                    await ReadTextAsync(result);
+                }
+                else
+                {
+                    CopyResultToClipboard(result, resultBox);
+                }
+            };
+            
+            resultBox.MouseEnter += (s, e) => 
+            {
+                resultBox.BackColor = Color.FromArgb(255, 255, 200); // Highlight on hover
+            };
+            resultBox.MouseLeave += (s, e) => 
+            {
+                resultBox.BackColor = originalColorForClosure; // Restore original color
+            };
+
+            resultsPanel.Controls.Add(resultBox);
+            yPosition += resultBox.Height + spacing;
+        }
+
+        // Handle panel resize to adjust result box widths
+        resultsPanel.Resize += (s, e) =>
+        {
+            foreach (Control control in resultsPanel.Controls)
+            {
+                if (control is TextBox textBox)
+                {
+                    textBox.Width = resultsPanel.ClientSize.Width - (spacing * 2) - SystemInformation.VerticalScrollBarWidth;
+                }
+            }
+        };
+    }
+
+    private int GetTextHeight(string text, Font font, int width)
+    {
+        using (var g = this.CreateGraphics())
+        {
+            var size = g.MeasureString(text, font, width);
+            return Math.Max(50, (int)size.Height + 20); // Minimum 50px, add padding
+        }
+    }
+
+    private void CopyResultToClipboard(string text, TextBox resultBox)
+    {
+        try
+        {
+            _clipboardManager.SetClipboardText(text, false);
+            
+            // Visual feedback
+            var originalColor = resultBox.BackColor;
+            resultBox.BackColor = Color.FromArgb(200, 255, 200); // Green flash
+            
+            var timer = new System.Windows.Forms.Timer { Interval = 300 };
+            timer.Tick += (s, e) =>
+            {
+                resultBox.BackColor = originalColor;
+                timer.Stop();
+                timer.Dispose();
+            };
+            timer.Start();
+
+            _loggingService.LogInformation("Result copied to clipboard from main form");
+            UpdateStatus("Result copied to clipboard");
+        }
+        catch (Exception ex)
+        {
+            _loggingService.LogError("Error copying to clipboard", ex);
+            MessageBox.Show($"Error copying to clipboard: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
     }
 
     private void AddErrorTab(string sourceText, string errorMessage, TranslationType type)

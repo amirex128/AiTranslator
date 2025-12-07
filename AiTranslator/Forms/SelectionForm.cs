@@ -1,4 +1,6 @@
+using AiTranslator.Models;
 using AiTranslator.Services;
+using AiTranslator.Utilities;
 
 namespace AiTranslator.Forms;
 
@@ -7,11 +9,25 @@ public class SelectionForm : Form
     private Panel mainPanel = null!;
     private Label titleLabel = null!;
     private Button closeButton = null!;
+    private Button readButton = null!;
     private readonly IConfigService _configService;
+    private readonly ITtsService _ttsService;
+    private readonly ILanguageDetector _languageDetector;
+    private readonly ILoggingService _loggingService;
+    private bool _isSelectingBoxToRead = false;
+    private CancellationTokenSource? _cancellationTokenSource;
 
-    public SelectionForm(List<string> options, IConfigService configService)
+    public SelectionForm(
+        List<string> options, 
+        IConfigService configService,
+        ITtsService ttsService,
+        ILanguageDetector languageDetector,
+        ILoggingService loggingService)
     {
         _configService = configService;
+        _ttsService = ttsService;
+        _languageDetector = languageDetector;
+        _loggingService = loggingService;
         InitializeComponents();
         PopulateOptions(options);
     }
@@ -54,11 +70,31 @@ public class SelectionForm : Form
             Padding = new Padding(5)
         };
 
-        closeButton = new Button
+        var buttonsPanel = new Panel
         {
             Dock = DockStyle.Bottom,
+            Height = 40
+        };
+
+        readButton = new Button
+        {
+            Text = "Read",
+            Location = new Point(10, 5),
+            Size = new Size(100, 30),
+            Font = buttonFont,
+            BackColor = Color.FromArgb(0, 120, 215),
+            ForeColor = Color.White,
+            FlatStyle = FlatStyle.Flat,
+            Cursor = Cursors.Hand
+        };
+        readButton.FlatAppearance.BorderSize = 0;
+        readButton.Click += OnReadButtonClick;
+
+        closeButton = new Button
+        {
             Text = "Close",
-            Height = 40,
+            Location = new Point(120, 5),
+            Size = new Size(100, 30),
             Font = buttonFont,
             BackColor = Color.FromArgb(200, 200, 200),
             ForeColor = Color.Black,
@@ -68,8 +104,11 @@ public class SelectionForm : Form
         closeButton.FlatAppearance.BorderSize = 0;
         closeButton.Click += (s, e) => this.Close();
 
+        buttonsPanel.Controls.Add(closeButton);
+        buttonsPanel.Controls.Add(readButton);
+
         containerPanel.Controls.Add(mainPanel);
-        containerPanel.Controls.Add(closeButton);
+        containerPanel.Controls.Add(buttonsPanel);
         containerPanel.Controls.Add(titleLabel);
 
         this.Controls.Add(containerPanel);
@@ -137,9 +176,39 @@ public class SelectionForm : Form
         }
 
         // Click events
-        panel.Click += (s, e) => CopyToClipboard(text, panel);
-        textBox.Click += (s, e) => CopyToClipboard(text, panel);
-        numberLabel.Click += (s, e) => CopyToClipboard(text, panel);
+        panel.Click += async (s, e) =>
+        {
+            if (_isSelectingBoxToRead)
+            {
+                await ReadTextAsync(text);
+            }
+            else
+            {
+                CopyToClipboard(text, panel);
+            }
+        };
+        textBox.Click += async (s, e) =>
+        {
+            if (_isSelectingBoxToRead)
+            {
+                await ReadTextAsync(text);
+            }
+            else
+            {
+                CopyToClipboard(text, panel);
+            }
+        };
+        numberLabel.Click += async (s, e) =>
+        {
+            if (_isSelectingBoxToRead)
+            {
+                await ReadTextAsync(text);
+            }
+            else
+            {
+                CopyToClipboard(text, panel);
+            }
+        };
 
         // Hover effect
         panel.MouseEnter += (s, e) =>
@@ -219,6 +288,124 @@ public class SelectionForm : Form
                 return true;
         }
         return false;
+    }
+
+    private async void OnReadButtonClick(object? sender, EventArgs e)
+    {
+        if (!_isSelectingBoxToRead)
+        {
+            EnterBoxSelectionMode();
+        }
+        else
+        {
+            ExitBoxSelectionMode();
+        }
+    }
+
+    private void EnterBoxSelectionMode()
+    {
+        _isSelectingBoxToRead = true;
+        readButton.Text = "Cancel";
+        readButton.BackColor = Color.Orange;
+        titleLabel.Text = "Click on a box to read it";
+        titleLabel.ForeColor = Color.Orange;
+
+        // Highlight all option panels
+        foreach (Control control in mainPanel.Controls)
+        {
+            if (control is Panel panel)
+            {
+                panel.BorderStyle = BorderStyle.Fixed3D;
+            }
+        }
+    }
+
+    private void ExitBoxSelectionMode()
+    {
+        _isSelectingBoxToRead = false;
+        readButton.Text = "Read";
+        readButton.BackColor = Color.FromArgb(0, 120, 215);
+        titleLabel.Text = "Multiple translation options found. Click on any option to copy to clipboard:";
+        titleLabel.ForeColor = Color.FromArgb(0, 120, 215);
+
+        // Remove highlight from all option panels
+        foreach (Control control in mainPanel.Controls)
+        {
+            if (control is Panel panel)
+            {
+                panel.BorderStyle = BorderStyle.FixedSingle;
+            }
+        }
+    }
+
+    private async Task ReadTextAsync(string text)
+    {
+        try
+        {
+            ExitBoxSelectionMode();
+            readButton.Enabled = false;
+            closeButton.Enabled = false;
+
+            _cancellationTokenSource = new CancellationTokenSource();
+            var language = _languageDetector.DetectLanguage(text);
+
+            titleLabel.Text = "Reading...";
+            titleLabel.ForeColor = Color.Blue;
+
+            if (language == Language.Persian)
+                await _ttsService.ReadPersianAsync(text, _cancellationTokenSource.Token);
+            else
+                await _ttsService.ReadEnglishAsync(text, _cancellationTokenSource.Token);
+
+            titleLabel.Text = "✓ Reading completed!";
+            titleLabel.ForeColor = Color.Green;
+        }
+        catch (OperationCanceledException)
+        {
+            _loggingService.LogInformation("Reading cancelled in selection form");
+            titleLabel.Text = "Reading cancelled";
+            titleLabel.ForeColor = Color.Orange;
+        }
+        catch (Exception ex)
+        {
+            _loggingService.LogError("Error reading text in selection form", ex);
+            titleLabel.Text = $"Error: {ex.Message}";
+            titleLabel.ForeColor = Color.Red;
+        }
+        finally
+        {
+            readButton.Enabled = true;
+            closeButton.Enabled = true;
+            _cancellationTokenSource?.Dispose();
+            _cancellationTokenSource = null;
+
+            // Reset title after 2 seconds
+            _ = Task.Run(async () =>
+            {
+                await Task.Delay(2000);
+                
+                if (this.IsDisposed || titleLabel.IsDisposed)
+                    return;
+
+                this.Invoke(() =>
+                {
+                    if (!titleLabel.IsDisposed)
+                    {
+                        titleLabel.Text = "Multiple translation options found. Click on any option to copy to clipboard:";
+                        titleLabel.ForeColor = Color.FromArgb(0, 120, 215);
+                    }
+                });
+            });
+        }
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing)
+        {
+            _cancellationTokenSource?.Dispose();
+        }
+        base.Dispose(disposing);
     }
 }
 
