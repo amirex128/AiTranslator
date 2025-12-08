@@ -7,6 +7,9 @@ namespace AiTranslator;
 
 public class ApplicationContext : System.Windows.Forms.ApplicationContext
 {
+    private static ApplicationContext? _instance;
+    public static ApplicationContext? Instance => _instance;
+
     private readonly MainForm _mainForm;
     private NotifyIcon? _notifyIcon;
     private readonly HotkeyManager _hotkeyManager;
@@ -29,6 +32,8 @@ public class ApplicationContext : System.Windows.Forms.ApplicationContext
         _configService = configService;
         _loggingService = loggingService;
         _notificationService = notificationService;
+
+        _instance = this;
 
         InitializeSystemTray();
         RegisterHotkeys();
@@ -62,44 +67,31 @@ public class ApplicationContext : System.Windows.Forms.ApplicationContext
         _notifyIcon.DoubleClick += OnNotifyIconDoubleClick;
     }
 
-    private void RegisterHotkeys()
+    public void RegisterHotkeys()
     {
+        // Unregister all existing hotkeys first
+        _hotkeyManager.UnregisterAllHotkeys();
+
         _hotkeyManager.Initialize(_mainForm.Handle);
 
         var hotkeys = _configService.Config.Hotkeys;
 
         try
         {
-            // Popup translations
+            // Unified translations (handles both edit and replace modes)
             _hotkeyManager.RegisterHotkey(
-                hotkeys.PopupTranslatePersianToEnglish,
-                () => _hotkeyActions.ShowPopupTranslation(TranslationType.PersianToEnglish)
+                hotkeys.TranslatePersianToEnglish,
+                () => _hotkeyActions.Translate(TranslationType.PersianToEnglish)
             );
 
             _hotkeyManager.RegisterHotkey(
-                hotkeys.PopupTranslateEnglishToPersian,
-                () => _hotkeyActions.ShowPopupTranslation(TranslationType.EnglishToPersian)
+                hotkeys.TranslateEnglishToPersian,
+                () => _hotkeyActions.Translate(TranslationType.EnglishToPersian)
             );
 
             _hotkeyManager.RegisterHotkey(
-                hotkeys.PopupTranslateGrammarFix,
-                () => _hotkeyActions.ShowPopupTranslation(TranslationType.GrammarFix)
-            );
-
-            // Clipboard replace
-            _hotkeyManager.RegisterHotkey(
-                hotkeys.ClipboardReplacePersianToEnglish,
-                () => _hotkeyActions.ReplaceClipboardWithTranslation(TranslationType.PersianToEnglish)
-            );
-
-            _hotkeyManager.RegisterHotkey(
-                hotkeys.ClipboardReplaceEnglishToPersian,
-                () => _hotkeyActions.ReplaceClipboardWithTranslation(TranslationType.EnglishToPersian)
-            );
-
-            _hotkeyManager.RegisterHotkey(
-                hotkeys.ClipboardReplaceGrammarFix,
-                () => _hotkeyActions.ReplaceClipboardWithTranslation(TranslationType.GrammarFix)
+                hotkeys.TranslateGrammarFix,
+                () => _hotkeyActions.Translate(TranslationType.GrammarFix)
             );
 
             // Read text

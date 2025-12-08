@@ -46,6 +46,10 @@ namespace AiTranslator.Forms
             this.grammarFixLabel = new Label();
             this.grammarFixTextBox = new TextBox();
             this.grammarFixCountLabel = new Label();
+            this.grammarLearnerPanel = new Panel();
+            this.grammarLearnerLabel = new Label();
+            this.grammarLearnerTextBox = new TextBox();
+            this.grammarLearnerCountLabel = new Label();
             
             this.controlsPanel = new Panel();
             this.translateButton = new Button();
@@ -58,11 +62,6 @@ namespace AiTranslator.Forms
             this.resultTabControl = new TabControl();
             this.copyResultButton = new Button();
             
-            this.shortcutsPanel = new Panel();
-            this.shortcutsLabel = new Label();
-            this.shortcutsListView = new ListView();
-            this.toggleShortcutsButton = new Button();
-            
             this.statusStrip = new StatusStrip();
             this.statusLabel = new ToolStripStatusLabel();
             
@@ -72,9 +71,9 @@ namespace AiTranslator.Forms
             this.persianToEnglishPanel.SuspendLayout();
             this.englishToPersianPanel.SuspendLayout();
             this.grammarFixPanel.SuspendLayout();
+            this.grammarLearnerPanel.SuspendLayout();
             this.controlsPanel.SuspendLayout();
             this.resultPanel.SuspendLayout();
-            this.shortcutsPanel.SuspendLayout();
             this.statusStrip.SuspendLayout();
             this.SuspendLayout();
             
@@ -161,7 +160,6 @@ namespace AiTranslator.Forms
             this.mainPanel.Padding = new Padding(10);
             this.mainPanel.Size = new Size(900, 654);
             this.mainPanel.TabIndex = 1;
-            this.mainPanel.Controls.Add(this.shortcutsPanel);
             this.mainPanel.Controls.Add(this.resultPanel);
             this.mainPanel.Controls.Add(this.controlsPanel);
             this.mainPanel.Controls.Add(this.inputsPanel);
@@ -170,8 +168,10 @@ namespace AiTranslator.Forms
             this.inputsPanel.Dock = DockStyle.Top;
             this.inputsPanel.Location = new Point(10, 10);
             this.inputsPanel.Name = "inputsPanel";
-            this.inputsPanel.Size = new Size(880, 300);
+            this.inputsPanel.Size = new Size(880, 400);
             this.inputsPanel.TabIndex = 0;
+            // Add panels in reverse order (DockStyle.Top stacks from bottom to top)
+            this.inputsPanel.Controls.Add(this.grammarLearnerPanel);
             this.inputsPanel.Controls.Add(this.grammarFixPanel);
             this.inputsPanel.Controls.Add(this.englishToPersianPanel);
             this.inputsPanel.Controls.Add(this.persianToEnglishPanel);
@@ -299,14 +299,56 @@ namespace AiTranslator.Forms
             this.grammarFixCountLabel.TabIndex = 2;
             this.grammarFixCountLabel.Text = "Characters: 0 | Words: 0";
             
+            // grammarLearnerPanel
+            this.grammarLearnerPanel.Dock = DockStyle.Top;
+            this.grammarLearnerPanel.Location = new Point(0, 300);
+            this.grammarLearnerPanel.Name = "grammarLearnerPanel";
+            this.grammarLearnerPanel.Padding = new Padding(5);
+            this.grammarLearnerPanel.Size = new Size(880, 100);
+            this.grammarLearnerPanel.TabIndex = 3;
+            this.grammarLearnerPanel.BorderStyle = BorderStyle.FixedSingle;
+            this.grammarLearnerPanel.Controls.Add(this.grammarLearnerCountLabel);
+            this.grammarLearnerPanel.Controls.Add(this.grammarLearnerTextBox);
+            this.grammarLearnerPanel.Controls.Add(this.grammarLearnerLabel);
+            
+            // grammarLearnerLabel
+            this.grammarLearnerLabel.Dock = DockStyle.Top;
+            this.grammarLearnerLabel.Font = new Font("Segoe UI", 10F, FontStyle.Bold);
+            this.grammarLearnerLabel.Location = new Point(5, 5);
+            this.grammarLearnerLabel.Name = "grammarLearnerLabel";
+            this.grammarLearnerLabel.Size = new Size(868, 20);
+            this.grammarLearnerLabel.TabIndex = 0;
+            this.grammarLearnerLabel.Text = "Grammar Learner";
+            
+            // grammarLearnerTextBox
+            this.grammarLearnerTextBox.Dock = DockStyle.Fill;
+            this.grammarLearnerTextBox.Font = new Font("Segoe UI", 10F);
+            this.grammarLearnerTextBox.Location = new Point(5, 25);
+            this.grammarLearnerTextBox.Multiline = true;
+            this.grammarLearnerTextBox.Name = "grammarLearnerTextBox";
+            this.grammarLearnerTextBox.ScrollBars = ScrollBars.Vertical;
+            this.grammarLearnerTextBox.Size = new Size(868, 48);
+            this.grammarLearnerTextBox.TabIndex = 1;
+            
+            // grammarLearnerCountLabel
+            this.grammarLearnerCountLabel.Dock = DockStyle.Bottom;
+            this.grammarLearnerCountLabel.Font = new Font("Segoe UI", 8F);
+            this.grammarLearnerCountLabel.ForeColor = Color.Gray;
+            this.grammarLearnerCountLabel.Location = new Point(5, 73);
+            this.grammarLearnerCountLabel.Name = "grammarLearnerCountLabel";
+            this.grammarLearnerCountLabel.Size = new Size(868, 20);
+            this.grammarLearnerCountLabel.TabIndex = 2;
+            this.grammarLearnerCountLabel.Text = "Characters: 0 | Words: 0";
+            
             // controlsPanel
             this.controlsPanel.Dock = DockStyle.Top;
-            this.controlsPanel.Location = new Point(10, 310);
+            this.controlsPanel.Location = new Point(10, 410);
             this.controlsPanel.Name = "controlsPanel";
             this.controlsPanel.Size = new Size(880, 50);
             this.controlsPanel.TabIndex = 1;
             this.controlsPanel.Controls.Add(this.loadingLabel);
             this.controlsPanel.Controls.Add(this.cancelButton);
+            this.controlsPanel.Controls.Add(this.learnButton);
             this.controlsPanel.Controls.Add(this.readButton);
             this.controlsPanel.Controls.Add(this.translateButton);
             
@@ -328,9 +370,21 @@ namespace AiTranslator.Forms
             this.readButton.Text = "Read";
             this.readButton.UseVisualStyleBackColor = true;
             
+            // learnButton
+            this.learnButton = new Button();
+            this.learnButton.Font = new Font("Segoe UI", 10F, FontStyle.Bold);
+            this.learnButton.Location = new Point(255, 10);
+            this.learnButton.Name = "learnButton";
+            this.learnButton.Size = new Size(120, 35);
+            this.learnButton.TabIndex = 2;
+            this.learnButton.Text = "Learn";
+            this.learnButton.UseVisualStyleBackColor = true;
+            this.learnButton.BackColor = Color.FromArgb(40, 167, 69);
+            this.learnButton.ForeColor = Color.White;
+            
             // cancelButton
             this.cancelButton.Font = new Font("Segoe UI", 10F);
-            this.cancelButton.Location = new Point(255, 10);
+            this.cancelButton.Location = new Point(380, 10);
             this.cancelButton.Name = "cancelButton";
             this.cancelButton.Size = new Size(120, 35);
             this.cancelButton.TabIndex = 2;
@@ -342,7 +396,7 @@ namespace AiTranslator.Forms
             this.loadingLabel.AutoSize = true;
             this.loadingLabel.Font = new Font("Segoe UI", 10F);
             this.loadingLabel.ForeColor = Color.Blue;
-            this.loadingLabel.Location = new Point(380, 18);
+            this.loadingLabel.Location = new Point(505, 18);
             this.loadingLabel.Name = "loadingLabel";
             this.loadingLabel.Size = new Size(100, 19);
             this.loadingLabel.TabIndex = 3;
@@ -351,7 +405,7 @@ namespace AiTranslator.Forms
             
             // resultPanel
             this.resultPanel.Dock = DockStyle.Fill;
-            this.resultPanel.Location = new Point(10, 360);
+            this.resultPanel.Location = new Point(10, 460);
             this.resultPanel.Name = "resultPanel";
             this.resultPanel.Padding = new Padding(5);
             this.resultPanel.Size = new Size(880, 200);
@@ -385,50 +439,6 @@ namespace AiTranslator.Forms
             this.copyResultButton.TabIndex = 2;
             this.copyResultButton.Text = "Copy to Clipboard";
             this.copyResultButton.UseVisualStyleBackColor = true;
-            
-            // shortcutsPanel
-            this.shortcutsPanel.Dock = DockStyle.Bottom;
-            this.shortcutsPanel.Location = new Point(10, 617);
-            this.shortcutsPanel.Name = "shortcutsPanel";
-            this.shortcutsPanel.Size = new Size(880, 25);
-            this.shortcutsPanel.TabIndex = 3;
-            this.shortcutsPanel.Controls.Add(this.shortcutsListView);
-            this.shortcutsPanel.Controls.Add(this.shortcutsLabel);
-            this.shortcutsPanel.Controls.Add(this.toggleShortcutsButton);
-            
-            // shortcutsLabel
-            this.shortcutsLabel.Dock = DockStyle.Top;
-            this.shortcutsLabel.Font = new Font("Segoe UI", 9F, FontStyle.Bold);
-            this.shortcutsLabel.Location = new Point(0, 0);
-            this.shortcutsLabel.Name = "shortcutsLabel";
-            this.shortcutsLabel.Size = new Size(880, 20);
-            this.shortcutsLabel.TabIndex = 0;
-            this.shortcutsLabel.Text = "Keyboard Shortcuts";
-            this.shortcutsLabel.Visible = false;
-            
-            // shortcutsListView
-            this.shortcutsListView.Dock = DockStyle.Fill;
-            this.shortcutsListView.Font = new Font("Segoe UI", 8F);
-            this.shortcutsListView.Location = new Point(0, 20);
-            this.shortcutsListView.Name = "shortcutsListView";
-            this.shortcutsListView.Size = new Size(880, 137);
-            this.shortcutsListView.TabIndex = 1;
-            this.shortcutsListView.View = View.Details;
-            this.shortcutsListView.GridLines = true;
-            this.shortcutsListView.FullRowSelect = true;
-            this.shortcutsListView.Columns.Add("Shortcut", 200);
-            this.shortcutsListView.Columns.Add("Action", 680);
-            this.shortcutsListView.Visible = false;
-            
-            // toggleShortcutsButton
-            this.toggleShortcutsButton.Dock = DockStyle.Bottom;
-            this.toggleShortcutsButton.Font = new Font("Segoe UI", 8F);
-            this.toggleShortcutsButton.Location = new Point(0, 0);
-            this.toggleShortcutsButton.Name = "toggleShortcutsButton";
-            this.toggleShortcutsButton.Size = new Size(880, 25);
-            this.toggleShortcutsButton.TabIndex = 2;
-            this.toggleShortcutsButton.Text = "Show Shortcuts";
-            this.toggleShortcutsButton.UseVisualStyleBackColor = true;
             
             // statusStrip
             this.statusStrip.Items.AddRange(new ToolStripItem[] {
@@ -466,10 +476,11 @@ namespace AiTranslator.Forms
             this.englishToPersianPanel.PerformLayout();
             this.grammarFixPanel.ResumeLayout(false);
             this.grammarFixPanel.PerformLayout();
+            this.grammarLearnerPanel.ResumeLayout(false);
+            this.grammarLearnerPanel.PerformLayout();
             this.controlsPanel.ResumeLayout(false);
             this.controlsPanel.PerformLayout();
             this.resultPanel.ResumeLayout(false);
-            this.shortcutsPanel.ResumeLayout(false);
             this.statusStrip.ResumeLayout(false);
             this.statusStrip.PerformLayout();
             this.ResumeLayout(false);
@@ -504,10 +515,15 @@ namespace AiTranslator.Forms
         private Label grammarFixLabel;
         private TextBox grammarFixTextBox;
         private Label grammarFixCountLabel;
+        private Panel grammarLearnerPanel;
+        private Label grammarLearnerLabel;
+        private TextBox grammarLearnerTextBox;
+        private Label grammarLearnerCountLabel;
         
         private Panel controlsPanel;
         private Button translateButton;
         private Button readButton;
+        private Button learnButton;
         private Button cancelButton;
         private Label loadingLabel;
         
@@ -515,11 +531,6 @@ namespace AiTranslator.Forms
         private Label resultLabel;
         private TabControl resultTabControl;
         private Button copyResultButton;
-        
-        private Panel shortcutsPanel;
-        private Label shortcutsLabel;
-        private ListView shortcutsListView;
-        private Button toggleShortcutsButton;
         
         private StatusStrip statusStrip;
         private ToolStripStatusLabel statusLabel;

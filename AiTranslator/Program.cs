@@ -37,6 +37,7 @@ static class Program
 
             var languageDetector = new LanguageDetector();
             var translationService = new TranslationService(configService, loggingService);
+            var grammarLearnerService = new GrammarLearnerService(configService, loggingService);
             
             // Initialize TTS components
             var ttsCacheManager = new TtsCacheManager(configService, loggingService);
@@ -57,7 +58,8 @@ static class Program
                 loggingService,
                 notificationService,
                 clipboardManager,
-                selectionManager
+                selectionManager,
+                grammarLearnerService
             );
 
             var mainForm = new MainForm(
@@ -67,7 +69,8 @@ static class Program
                 languageDetector,
                 loggingService,
                 hotkeyManager,
-                clipboardManager
+                clipboardManager,
+                grammarLearnerService
             );
 
             var appContext = new ApplicationContext(

@@ -12,14 +12,19 @@ public class TranslationPopupForm : Form
     private readonly IConfigService _configService;
     private readonly ILoggingService _loggingService;
     private readonly ClipboardManager _clipboardManager;
+    private readonly SelectionManager? _selectionManager;
+    private readonly IGrammarLearnerService? _grammarLearnerService;
 
     private TextBox sourceTextBox = null!;
     private Panel resultsPanel = null!;
     private Button translateButton = null!;
     private Button readButton = null!;
+    private Button insertButton = null!;
+    private Button learnButton = null!;
+    private Button closeButton = null!;
     private ProgressBar autoCloseProgressBar = null!;
     private Label titleLabel = null!;
-    
+
     private System.Windows.Forms.Timer autoCloseTimer = null!;
     private System.Windows.Forms.Timer progressTimer = null!;
     private int remainingSeconds;
@@ -28,7 +33,9 @@ public class TranslationPopupForm : Form
     private CancellationTokenSource? _cancellationTokenSource;
     private List<string> _currentResults = new();
     private bool _isSelectingBoxToRead = false;
-    private TextBox? _selectedBoxForReading = null;
+    private bool _isSelectingBoxToInsert = false;
+    private bool _isSelectingBoxToLearn = false;
+    private bool _isSelectionMode = false;
 
     public TranslationPopupForm(
         ITranslationService translationService,
@@ -36,7 +43,9 @@ public class TranslationPopupForm : Form
         ILanguageDetector languageDetector,
         IConfigService configService,
         ILoggingService loggingService,
-        ClipboardManager clipboardManager)
+        ClipboardManager clipboardManager,
+        SelectionManager? selectionManager = null,
+        IGrammarLearnerService? grammarLearnerService = null)
     {
         _translationService = translationService;
         _ttsService = ttsService;
@@ -44,6 +53,8 @@ public class TranslationPopupForm : Form
         _configService = configService;
         _loggingService = loggingService;
         _clipboardManager = clipboardManager;
+        _selectionManager = selectionManager;
+        _grammarLearnerService = grammarLearnerService;
 
         InitializeComponents();
         InitializeTimers();
@@ -84,7 +95,9 @@ public class TranslationPopupForm : Form
             Multiline = true,
             Height = 100,
             ScrollBars = ScrollBars.Vertical,
-            Font = font
+            Font = font,
+            ReadOnly = false,
+            BackColor = Color.White
         };
 
         var resultLabel = new Label
@@ -106,36 +119,33 @@ public class TranslationPopupForm : Form
         var buttonsPanel = new Panel
         {
             Dock = DockStyle.Bottom,
-            Height = 40
+            Height = 50
         };
-
-        translateButton = new Button
-        {
-            Text = "Translate",
-            Location = new Point(10, 5),
-            Size = new Size(100, 30),
-            Font = new Font("Segoe UI", 9F, FontStyle.Bold)
-        };
-        translateButton.Click += OnTranslateButtonClick;
-
-        readButton = new Button
-        {
-            Text = "Read",
-            Location = new Point(120, 5),
-            Size = new Size(100, 30),
-            Font = new Font("Segoe UI", 9F, FontStyle.Bold)
-        };
-        readButton.Click += OnReadButtonClick;
 
         autoCloseProgressBar = new ProgressBar
         {
-            Dock = DockStyle.Bottom,
-            Height = 10,
-            Style = ProgressBarStyle.Continuous
+            Location = new Point(10, 5),
+            Size = new Size(480, 5),
+            Style = ProgressBarStyle.Continuous,
+            ForeColor = Color.FromArgb(0, 120, 215)
         };
 
-        buttonsPanel.Controls.Add(readButton);
+        translateButton = CreateButton("Translate", new Point(10, 15), Color.FromArgb(0, 120, 215),
+            OnTranslateButtonClick);
+        readButton = CreateButton("Read", new Point(110, 15), Color.FromArgb(0, 120, 215), OnReadButtonClick);
+        insertButton = CreateButton("Insert", new Point(210, 15), Color.FromArgb(40, 167, 69), OnInsertButtonClick);
+        insertButton.Visible = _selectionManager != null;
+        learnButton = CreateButton("Learn", new Point(310, 15), Color.FromArgb(138, 43, 226), OnLearnButtonClick);
+        learnButton.Visible = _grammarLearnerService != null;
+        closeButton = CreateButton("Close", new Point(410, 15), Color.FromArgb(200, 200, 200), (s, e) => this.Close());
+        closeButton.ForeColor = Color.Black;
+
+        buttonsPanel.Controls.Add(autoCloseProgressBar);
         buttonsPanel.Controls.Add(translateButton);
+        buttonsPanel.Controls.Add(readButton);
+        buttonsPanel.Controls.Add(insertButton);
+        buttonsPanel.Controls.Add(learnButton);
+        buttonsPanel.Controls.Add(closeButton);
 
         mainPanel.Controls.Add(resultsPanel);
         mainPanel.Controls.Add(resultLabel);
@@ -144,19 +154,17 @@ public class TranslationPopupForm : Form
         mainPanel.Controls.Add(buttonsPanel);
 
         this.Controls.Add(mainPanel);
-        this.Controls.Add(autoCloseProgressBar);
 
         // Handle mouse enter/leave for all controls to properly track mouse position
-        this.MouseEnter += OnMouseEnterForm;
-        this.MouseLeave += OnMouseLeaveForm;
-        sourceTextBox.MouseEnter += OnMouseEnterForm;
-        sourceTextBox.MouseLeave += OnMouseLeaveForm;
-        resultsPanel.MouseEnter += OnMouseEnterForm;
-        resultsPanel.MouseLeave += OnMouseLeaveForm;
-        translateButton.MouseEnter += OnMouseEnterForm;
-        translateButton.MouseLeave += OnMouseLeaveForm;
-        readButton.MouseEnter += OnMouseEnterForm;
-        readButton.MouseLeave += OnMouseLeaveForm;
+        AttachMouseEvents(this);
+        AttachMouseEvents(sourceTextBox);
+        AttachMouseEvents(resultsPanel);
+        AttachMouseEvents(translateButton);
+        AttachMouseEvents(readButton);
+        AttachMouseEvents(insertButton);
+        AttachMouseEvents(learnButton);
+        AttachMouseEvents(closeButton);
+        AttachMouseEvents(titleLabel);
     }
 
     private void InitializeTimers()
@@ -170,39 +178,202 @@ public class TranslationPopupForm : Form
         progressTimer.Tick += OnProgressTimerTick;
     }
 
-    public void ShowPopup(string text, TranslationType type, Point? location = null)
+    private void AttachMouseEvents(Control control)
+    {
+        control.MouseEnter += OnMouseEnterForm;
+        control.MouseLeave += OnMouseLeaveForm;
+    }
+
+    private Button CreateButton(string text, Point location, Color backColor, EventHandler? clickHandler = null)
+    {
+        var button = new Button
+        {
+            Text = text,
+            Location = location,
+            Size = new Size(90, 30),
+            Font = new Font("Segoe UI", 9F, FontStyle.Bold),
+            BackColor = backColor,
+            ForeColor = Color.White,
+            FlatStyle = FlatStyle.Flat,
+            Cursor = Cursors.Hand
+        };
+        button.FlatAppearance.BorderSize = 0;
+
+        if (clickHandler != null)
+            button.Click += clickHandler;
+
+        return button;
+    }
+
+    private void SetButtonsEnabled(bool enabled)
+    {
+        if (this.IsDisposed || this.Disposing)
+            return;
+
+        try
+        {
+            if (!translateButton.IsDisposed) translateButton.Enabled = enabled;
+            if (!readButton.IsDisposed) readButton.Enabled = enabled;
+            if (!insertButton.IsDisposed) insertButton.Enabled = enabled;
+            if (!learnButton.IsDisposed) learnButton.Enabled = enabled;
+            if (!closeButton.IsDisposed) closeButton.Enabled = enabled;
+        }
+        catch (ObjectDisposedException)
+        {
+            // Controls were disposed, ignore
+        }
+    }
+
+    private void ResetTitleLabel()
+    {
+        if (titleLabel.IsDisposed)
+            return;
+
+        if (_isSelectionMode)
+        {
+            titleLabel.Text = "Multiple translation options found. Click on any option to copy to clipboard:";
+            titleLabel.ForeColor = Color.FromArgb(0, 120, 215);
+        }
+        else
+        {
+            titleLabel.Text = _translationType.ToString().Replace("To", " → ");
+            titleLabel.ForeColor = SystemColors.ControlText;
+        }
+    }
+
+    private void ResetTitleAfterDelay()
+    {
+        _ = Task.Run(async () =>
+        {
+            await Task.Delay(2000);
+
+            if (this.IsDisposed || this.Disposing || titleLabel.IsDisposed)
+                return;
+
+            try
+            {
+                if (this.InvokeRequired)
+                {
+                    this.Invoke(() =>
+                    {
+                        if (!this.IsDisposed && !this.Disposing && !titleLabel.IsDisposed)
+                            ResetTitleLabel();
+                    });
+                }
+                else
+                {
+                    if (!titleLabel.IsDisposed)
+                        ResetTitleLabel();
+                }
+            }
+            catch (ObjectDisposedException)
+            {
+                // Form was disposed, ignore
+            }
+            catch (InvalidOperationException)
+            {
+                // Form handle was destroyed, ignore
+            }
+        });
+    }
+
+    /// <summary>
+    /// Shows popup with unified design for both edit and selection modes
+    /// </summary>
+    public void ShowPopup(string text, TranslationType type, Point? location = null,
+        List<string>? preTranslatedOptions = null, bool hasSelectedText = false)
     {
         _translationType = type;
-        sourceTextBox.Text = text;
-        titleLabel.Text = type.ToString().Replace("To", " → ");
+
+        // Determine if we're in selection mode (pre-translated options provided)
+        _isSelectionMode = preTranslatedOptions != null && preTranslatedOptions.Count > 0;
+
+        if (_isSelectionMode)
+        {
+            // Selection mode: show source text as read-only, display pre-translated options
+            sourceTextBox.Text = text;
+            sourceTextBox.ReadOnly = true;
+            sourceTextBox.BackColor = Color.FromArgb(245, 245, 245);
+            titleLabel.Text = "Multiple translation options found. Click on any option to copy to clipboard:";
+            titleLabel.ForeColor = Color.FromArgb(0, 120, 215);
+
+            // Display pre-translated results
+            DisplayResults(preTranslatedOptions!);
+
+            // Button visibility
+            translateButton.Visible = true;
+            translateButton.Enabled = false; // Disabled in selection mode
+            insertButton.Visible = _selectionManager != null && hasSelectedText;
+            learnButton.Visible = _grammarLearnerService != null;
+
+            // Form settings for selection mode
+            this.StartPosition = FormStartPosition.CenterScreen;
+            this.Size = new Size(700, 500);
+            this.FormBorderStyle = FormBorderStyle.FixedDialog;
+            this.MaximizeBox = false;
+            this.MinimizeBox = false;
+        }
+        else
+        {
+            // Edit mode: show source text as editable, translate automatically
+            sourceTextBox.Text = text;
+            sourceTextBox.ReadOnly = false;
+            sourceTextBox.BackColor = Color.White;
+            ResetTitleLabel();
+
+            // Button visibility
+            translateButton.Visible = true;
+            translateButton.Enabled = true;
+            insertButton.Visible = _selectionManager != null;
+            learnButton.Visible = _grammarLearnerService != null;
+
+            // Form settings for edit mode
+            this.FormBorderStyle = FormBorderStyle.SizableToolWindow;
+            this.StartPosition = FormStartPosition.Manual;
+            this.Size = new Size(500, 400);
+            this.MinimumSize = new Size(400, 300);
+            this.MaximizeBox = true;
+            this.MinimizeBox = true;
+
+            // Position near mouse cursor
+            if (location.HasValue)
+            {
+                this.Location = location.Value;
+            }
+            else
+            {
+                var cursorPosition = Cursor.Position;
+                this.Location = new Point(cursorPosition.X + 10, cursorPosition.Y + 10);
+            }
+
+            // Ensure popup is on screen
+            var screen = Screen.FromPoint(this.Location);
+            if (this.Right > screen.WorkingArea.Right)
+                this.Left = screen.WorkingArea.Right - this.Width;
+            if (this.Bottom > screen.WorkingArea.Bottom)
+                this.Top = screen.WorkingArea.Bottom - this.Height;
+
+            // Start translation automatically (only if no pre-translated options)
+            if (preTranslatedOptions == null || preTranslatedOptions.Count == 0)
+            {
+                _ = TranslateAsync();
+            }
+            else
+            {
+                // Pre-filled result: display it immediately
+                DisplayResults(preTranslatedOptions);
+            }
+        }
 
         // Update RTL based on source text
         var language = _languageDetector.DetectLanguage(text);
         sourceTextBox.RightToLeft = language == Language.Persian ? RightToLeft.Yes : RightToLeft.No;
 
-        // Position near mouse cursor
-        if (location.HasValue)
-        {
-            this.Location = location.Value;
-        }
-        else
-        {
-            var cursorPosition = Cursor.Position;
-            this.Location = new Point(cursorPosition.X + 10, cursorPosition.Y + 10);
-        }
-
-        // Ensure popup is on screen
-        var screen = Screen.FromPoint(this.Location);
-        if (this.Right > screen.WorkingArea.Right)
-            this.Left = screen.WorkingArea.Right - this.Width;
-        if (this.Bottom > screen.WorkingArea.Bottom)
-            this.Top = screen.WorkingArea.Bottom - this.Height;
+        // Always show source text box
+        sourceTextBox.Visible = true;
 
         this.Show();
         this.Activate();
-
-        // Start translation automatically
-        _ = TranslateAsync();
 
         // Start auto-close timer
         StartAutoCloseTimer();
@@ -215,18 +386,36 @@ public class TranslationPopupForm : Form
 
     private void OnMouseLeaveForm(object? sender, EventArgs e)
     {
+        if (this.IsDisposed || this.Disposing)
+            return;
+
         // Use a small delay to check if mouse is actually leaving the form
         // This prevents false triggers when moving between controls
         var timer = new System.Windows.Forms.Timer { Interval = 100 };
         timer.Tick += (s, args) =>
         {
-            var mousePos = this.PointToClient(Cursor.Position);
-            if (!this.ClientRectangle.Contains(mousePos))
+            if (this.IsDisposed || this.Disposing)
             {
-                isMouseOver = false;
-                // Restart timer when mouse leaves
-                StartAutoCloseTimer();
+                timer.Stop();
+                timer.Dispose();
+                return;
             }
+
+            try
+            {
+                var mousePos = this.PointToClient(Cursor.Position);
+                if (!this.ClientRectangle.Contains(mousePos))
+                {
+                    isMouseOver = false;
+                    // Restart timer when mouse leaves
+                    StartAutoCloseTimer();
+                }
+            }
+            catch (ObjectDisposedException)
+            {
+                // Form was disposed, ignore
+            }
+
             timer.Stop();
             timer.Dispose();
         };
@@ -235,11 +424,21 @@ public class TranslationPopupForm : Form
 
     private void StartAutoCloseTimer()
     {
-        remainingSeconds = _configService.Config.Ui.PopupAutoCloseSeconds;
-        autoCloseProgressBar.Maximum = remainingSeconds;
-        autoCloseProgressBar.Value = 0;
-        autoCloseTimer.Start();
-        progressTimer.Start();
+        if (this.IsDisposed || this.Disposing)
+            return;
+
+        try
+        {
+            remainingSeconds = _configService.Config.Ui.PopupAutoCloseSeconds;
+            autoCloseProgressBar.Maximum = remainingSeconds;
+            autoCloseProgressBar.Value = 0;
+            autoCloseTimer.Start();
+            progressTimer.Start();
+        }
+        catch (ObjectDisposedException)
+        {
+            // Form was disposed, ignore
+        }
     }
 
     private void OnAutoCloseTimerTick(object? sender, EventArgs e)
@@ -258,15 +457,28 @@ public class TranslationPopupForm : Form
 
     private void OnProgressTimerTick(object? sender, EventArgs e)
     {
-        if (isMouseOver)
+        if (this.IsDisposed || this.Disposing)
         {
-            autoCloseProgressBar.Value = 0;
+            progressTimer?.Stop();
             return;
         }
 
-        var totalSeconds = _configService.Config.Ui.PopupAutoCloseSeconds;
-        var elapsed = totalSeconds - remainingSeconds;
-        autoCloseProgressBar.Value = Math.Min(elapsed, autoCloseProgressBar.Maximum);
+        try
+        {
+            if (isMouseOver)
+            {
+                autoCloseProgressBar.Value = 0;
+                return;
+            }
+
+            var totalSeconds = _configService.Config.Ui.PopupAutoCloseSeconds;
+            var elapsed = totalSeconds - remainingSeconds;
+            autoCloseProgressBar.Value = Math.Min(elapsed, autoCloseProgressBar.Maximum);
+        }
+        catch (ObjectDisposedException)
+        {
+            progressTimer?.Stop();
+        }
     }
 
     private async void OnTranslateButtonClick(object? sender, EventArgs e)
@@ -289,46 +501,148 @@ public class TranslationPopupForm : Form
         // Multiple results - enter selection mode
         if (!_isSelectingBoxToRead)
         {
-            EnterBoxSelectionMode();
+            EnterReadSelectionMode();
         }
         else
         {
-            ExitBoxSelectionMode();
+            ExitSelectionMode();
         }
     }
 
-    private void EnterBoxSelectionMode()
+    private async void OnInsertButtonClick(object? sender, EventArgs e)
+    {
+        if (_currentResults.Count == 0 || _selectionManager == null)
+            return;
+
+        // If only one result, insert it directly
+        if (_currentResults.Count == 1)
+        {
+            await InsertTextAsync(_currentResults[0]);
+            return;
+        }
+
+        // Multiple results - enter selection mode
+        if (!_isSelectingBoxToInsert)
+        {
+            EnterInsertSelectionMode();
+        }
+        else
+        {
+            ExitSelectionMode();
+        }
+    }
+
+    private async void OnLearnButtonClick(object? sender, EventArgs e)
+    {
+        if (_currentResults.Count == 0 || _grammarLearnerService == null)
+            return;
+
+        // If only one result, learn it directly
+        if (_currentResults.Count == 1)
+        {
+            await LearnGrammarAsync(_currentResults[0]);
+            return;
+        }
+
+        // Multiple results - enter selection mode
+        if (!_isSelectingBoxToLearn)
+        {
+            EnterLearnSelectionMode();
+        }
+        else
+        {
+            ExitSelectionMode();
+        }
+    }
+
+    private void EnterReadSelectionMode()
     {
         _isSelectingBoxToRead = true;
+        _isSelectingBoxToInsert = false;
+
         readButton.Text = "Cancel";
         readButton.BackColor = Color.Orange;
+        insertButton.Enabled = false;
+        translateButton.Enabled = false;
+
         titleLabel.Text = "Click on a box to read it";
         titleLabel.ForeColor = Color.Orange;
 
         // Highlight all result boxes
-        foreach (Control control in resultsPanel.Controls)
-        {
-            if (control is TextBox textBox)
-            {
-                textBox.BorderStyle = BorderStyle.Fixed3D;
-            }
-        }
+        HighlightResultBoxes(true);
     }
 
-    private void ExitBoxSelectionMode()
+    private void EnterInsertSelectionMode()
+    {
+        _isSelectingBoxToInsert = true;
+        _isSelectingBoxToRead = false;
+        _isSelectingBoxToLearn = false;
+
+        insertButton.Text = "Cancel";
+        insertButton.BackColor = Color.Orange;
+        readButton.Enabled = false;
+        learnButton.Enabled = false;
+        translateButton.Enabled = false;
+
+        titleLabel.Text = "Click on a box to insert it into the application";
+        titleLabel.ForeColor = Color.FromArgb(40, 167, 69);
+
+        // Highlight all result boxes
+        HighlightResultBoxes(true);
+    }
+
+    private void EnterLearnSelectionMode()
+    {
+        _isSelectingBoxToLearn = true;
+        _isSelectingBoxToRead = false;
+        _isSelectingBoxToInsert = false;
+
+        learnButton.Text = "Cancel";
+        learnButton.BackColor = Color.Orange;
+        readButton.Enabled = false;
+        insertButton.Enabled = false;
+        translateButton.Enabled = false;
+
+        titleLabel.Text = "Click on a box to learn grammar";
+        titleLabel.ForeColor = Color.FromArgb(138, 43, 226);
+
+        // Highlight all result boxes
+        HighlightResultBoxes(true);
+    }
+
+    private void ExitSelectionMode()
     {
         _isSelectingBoxToRead = false;
+        _isSelectingBoxToInsert = false;
+        _isSelectingBoxToLearn = false;
+
         readButton.Text = "Read";
-        readButton.BackColor = SystemColors.Control;
-        titleLabel.Text = _translationType.ToString().Replace("To", " → ");
-        titleLabel.ForeColor = SystemColors.ControlText;
+        readButton.BackColor = Color.FromArgb(0, 120, 215);
+        readButton.Enabled = true;
+
+        insertButton.Text = "Insert";
+        insertButton.BackColor = Color.FromArgb(40, 167, 69);
+        insertButton.Enabled = true;
+
+        learnButton.Text = "Learn";
+        learnButton.BackColor = Color.FromArgb(138, 43, 226);
+        learnButton.Enabled = true;
+
+        translateButton.Enabled = true;
+
+        ResetTitleLabel();
 
         // Remove highlight from all result boxes
+        HighlightResultBoxes(false);
+    }
+
+    private void HighlightResultBoxes(bool highlight)
+    {
         foreach (Control control in resultsPanel.Controls)
         {
             if (control is TextBox textBox)
             {
-                textBox.BorderStyle = BorderStyle.FixedSingle;
+                textBox.BorderStyle = highlight ? BorderStyle.Fixed3D : BorderStyle.FixedSingle;
             }
         }
     }
@@ -337,33 +651,226 @@ public class TranslationPopupForm : Form
     {
         try
         {
-            ExitBoxSelectionMode();
-            readButton.Enabled = false;
-            translateButton.Enabled = false;
+            ExitSelectionMode();
+            SetButtonsEnabled(false);
 
             _cancellationTokenSource = new CancellationTokenSource();
             var language = _languageDetector.DetectLanguage(text);
+
+            if (!titleLabel.IsDisposed)
+            {
+                titleLabel.Text = "Reading...";
+                titleLabel.ForeColor = Color.Blue;
+            }
 
             if (language == Language.Persian)
                 await _ttsService.ReadPersianAsync(text, _cancellationTokenSource.Token);
             else
                 await _ttsService.ReadEnglishAsync(text, _cancellationTokenSource.Token);
+
+            if (!this.IsDisposed && !this.Disposing && !titleLabel.IsDisposed)
+            {
+                titleLabel.Text = "✓ Reading completed!";
+                titleLabel.ForeColor = Color.Green;
+            }
         }
         catch (OperationCanceledException)
         {
             _loggingService.LogInformation("Reading cancelled in popup");
+            if (!this.IsDisposed && !this.Disposing && !titleLabel.IsDisposed)
+            {
+                titleLabel.Text = "Reading cancelled";
+                titleLabel.ForeColor = Color.Orange;
+            }
         }
         catch (Exception ex)
         {
             _loggingService.LogError("Error reading text in popup", ex);
-            MessageBox.Show($"Error reading text: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            if (!this.IsDisposed && !this.Disposing && !titleLabel.IsDisposed)
+            {
+                titleLabel.Text = $"Error: {ex.Message}";
+                titleLabel.ForeColor = Color.Red;
+            }
         }
         finally
         {
-            readButton.Enabled = true;
-            translateButton.Enabled = true;
+            SetButtonsEnabled(true);
             _cancellationTokenSource?.Dispose();
             _cancellationTokenSource = null;
+
+            // Reset title after delay
+            ResetTitleAfterDelay();
+        }
+    }
+
+    private async Task InsertTextAsync(string text)
+    {
+        try
+        {
+            ExitSelectionMode();
+            SetButtonsEnabled(false);
+
+            if (!titleLabel.IsDisposed)
+            {
+                titleLabel.Text = "Inserting text...";
+                titleLabel.ForeColor = Color.Blue;
+            }
+
+            if (_selectionManager != null)
+            {
+                var success = await _selectionManager.InsertTextAsync(text);
+
+                if (success && !this.IsDisposed && !this.Disposing && !titleLabel.IsDisposed)
+                {
+                    titleLabel.Text = "✓ Text inserted successfully!";
+                    titleLabel.ForeColor = Color.Green;
+
+                    _loggingService.LogInformation("Text inserted successfully");
+
+                    // Close the form after a short delay
+                    _ = Task.Run(async () =>
+                    {
+                        await Task.Delay(1000);
+
+                        if (this.IsDisposed || this.Disposing)
+                            return;
+
+                        try
+                        {
+                            if (this.InvokeRequired)
+                            {
+                                this.Invoke(() =>
+                                {
+                                    if (!this.IsDisposed && !this.Disposing)
+                                        this.Close();
+                                });
+                            }
+                            else
+                            {
+                                if (!this.IsDisposed && !this.Disposing)
+                                    this.Close();
+                            }
+                        }
+                        catch (ObjectDisposedException)
+                        {
+                            // Form was disposed, ignore
+                        }
+                        catch (InvalidOperationException)
+                        {
+                            // Form handle was destroyed, ignore
+                        }
+                    });
+                    return; // Don't reset title if closing
+                }
+                else if (!this.IsDisposed && !this.Disposing && !titleLabel.IsDisposed)
+                {
+                    titleLabel.Text = "Failed to insert text";
+                    titleLabel.ForeColor = Color.Red;
+                }
+            }
+            else if (!this.IsDisposed && !this.Disposing && !titleLabel.IsDisposed)
+            {
+                titleLabel.Text = "Insert feature not available";
+                titleLabel.ForeColor = Color.Red;
+            }
+        }
+        catch (Exception ex)
+        {
+            _loggingService.LogError("Error inserting text in popup", ex);
+            if (!this.IsDisposed && !this.Disposing && !titleLabel.IsDisposed)
+            {
+                titleLabel.Text = $"Error: {ex.Message}";
+                titleLabel.ForeColor = Color.Red;
+            }
+        }
+        finally
+        {
+            SetButtonsEnabled(true);
+
+            // Reset title after delay (if not closing)
+            ResetTitleAfterDelay();
+        }
+    }
+
+    private async Task LearnGrammarAsync(string text)
+    {
+        try
+        {
+            ExitSelectionMode();
+            SetButtonsEnabled(false);
+
+            if (!titleLabel.IsDisposed)
+            {
+                titleLabel.Text = "Learning grammar...";
+                titleLabel.ForeColor = Color.Blue;
+            }
+
+            if (_grammarLearnerService == null)
+            {
+                if (!this.IsDisposed && !this.Disposing && !titleLabel.IsDisposed)
+                {
+                    titleLabel.Text = "Grammar Learner service not available";
+                    titleLabel.ForeColor = Color.Red;
+                }
+
+                return;
+            }
+
+            _cancellationTokenSource = new CancellationTokenSource();
+            var response = await _grammarLearnerService.LearnGrammarAsync(text, _cancellationTokenSource.Token);
+
+            if (response == null)
+            {
+                if (!this.IsDisposed && !this.Disposing && !titleLabel.IsDisposed)
+                {
+                    titleLabel.Text = "Failed to learn grammar";
+                    titleLabel.ForeColor = Color.Red;
+                }
+
+                return;
+            }
+
+            // Show Grammar Learner Form
+            if (!this.IsDisposed && !this.Disposing)
+            {
+                var learnerForm = new GrammarLearnerForm(response, _configService);
+                learnerForm.Show();
+            }
+
+            if (!this.IsDisposed && !this.Disposing && !titleLabel.IsDisposed)
+            {
+                titleLabel.Text = "✓ Grammar learning completed!";
+                titleLabel.ForeColor = Color.Green;
+            }
+
+            _loggingService.LogInformation("Grammar learning completed successfully");
+        }
+        catch (OperationCanceledException)
+        {
+            _loggingService.LogInformation("Grammar learning cancelled in popup");
+            if (!this.IsDisposed && !this.Disposing && !titleLabel.IsDisposed)
+            {
+                titleLabel.Text = "Grammar learning cancelled";
+                titleLabel.ForeColor = Color.Orange;
+            }
+        }
+        catch (Exception ex)
+        {
+            _loggingService.LogError("Error learning grammar in popup", ex);
+            if (!this.IsDisposed && !this.Disposing && !titleLabel.IsDisposed)
+            {
+                titleLabel.Text = $"Error: {ex.Message}";
+                titleLabel.ForeColor = Color.Red;
+            }
+        }
+        finally
+        {
+            SetButtonsEnabled(true);
+            _cancellationTokenSource?.Dispose();
+            _cancellationTokenSource = null;
+
+            // Reset title after delay
+            ResetTitleAfterDelay();
         }
     }
 
@@ -384,13 +891,16 @@ public class TranslationPopupForm : Form
             switch (_translationType)
             {
                 case TranslationType.PersianToEnglish:
-                    response = await _translationService.TranslatePersianToEnglishAsync(sourceTextBox.Text, _cancellationTokenSource.Token);
+                    response = await _translationService.TranslatePersianToEnglishAsync(sourceTextBox.Text,
+                        _cancellationTokenSource.Token);
                     break;
                 case TranslationType.EnglishToPersian:
-                    response = await _translationService.TranslateEnglishToPersianAsync(sourceTextBox.Text, _cancellationTokenSource.Token);
+                    response = await _translationService.TranslateEnglishToPersianAsync(sourceTextBox.Text,
+                        _cancellationTokenSource.Token);
                     break;
                 case TranslationType.GrammarFix:
-                    response = await _translationService.FixGrammarAsync(sourceTextBox.Text, _cancellationTokenSource.Token);
+                    response = await _translationService.FixGrammarAsync(sourceTextBox.Text,
+                        _cancellationTokenSource.Token);
                     break;
                 default:
                     throw new ArgumentException("Invalid translation type");
@@ -399,7 +909,7 @@ public class TranslationPopupForm : Form
             if (response.Success)
             {
                 // Split response by %%%%% separator
-                var results = ParseTranslationOptions(response.Text);
+                var results = TranslationHelper.ParseTranslationOptions(response.Text);
                 DisplayResults(results);
             }
             else
@@ -421,19 +931,6 @@ public class TranslationPopupForm : Form
         }
     }
 
-    private List<string> ParseTranslationOptions(string text)
-    {
-        if (string.IsNullOrWhiteSpace(text))
-            return new List<string> { text };
-
-        // Split by %%%%% separator
-        var options = text.Split(new[] { "%%%%%" }, StringSplitOptions.RemoveEmptyEntries)
-                          .Select(o => o.Trim())
-                          .Where(o => !string.IsNullOrWhiteSpace(o))
-                          .ToList();
-
-        return options.Count > 0 ? options : new List<string> { text };
-    }
 
     private void ShowLoadingMessage()
     {
@@ -470,6 +967,14 @@ public class TranslationPopupForm : Form
         resultsPanel.Controls.Add(errorLabel);
     }
 
+    /// <summary>
+    /// Sets the translation result directly without re-translating (used when result is already available)
+    /// </summary>
+    public void SetTranslationResult(string result)
+    {
+        DisplayResults(new List<string> { result });
+    }
+
     private void DisplayResults(List<string> results)
     {
         resultsPanel.Controls.Clear();
@@ -485,14 +990,12 @@ public class TranslationPopupForm : Form
         var font = new Font("Segoe UI", fontSize);
         var spacing = 10;
         var yPosition = spacing;
-        var originalColors = new List<Color>();
 
         for (int i = 0; i < results.Count; i++)
         {
             var result = results[i];
             var language = _languageDetector.DetectLanguage(result);
             var originalColor = i % 2 == 0 ? Color.LightYellow : Color.LightBlue;
-            originalColors.Add(originalColor);
 
             // Create a container panel for each result
             var resultBox = new TextBox
@@ -509,30 +1012,39 @@ public class TranslationPopupForm : Form
                 Location = new Point(spacing, yPosition),
                 Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
                 Width = resultsPanel.ClientSize.Width - (spacing * 2) - SystemInformation.VerticalScrollBarWidth,
-                Height = Math.Min(150, GetTextHeight(result, font, resultsPanel.ClientSize.Width - (spacing * 2) - SystemInformation.VerticalScrollBarWidth))
+                Height = Math.Min(150,
+                    TranslationHelper.GetTextHeight(this, result, font,
+                        resultsPanel.ClientSize.Width - (spacing * 2) - SystemInformation.VerticalScrollBarWidth))
             };
 
-            var index = i; // Capture for closure
             var originalColorForClosure = originalColor;
 
-            // Add click handler to copy to clipboard or read
+            // Add click handler to copy to clipboard, read, insert, or learn
             resultBox.Click += async (s, e) =>
             {
                 if (_isSelectingBoxToRead)
                 {
                     await ReadTextAsync(result);
                 }
+                else if (_isSelectingBoxToInsert)
+                {
+                    await InsertTextAsync(result);
+                }
+                else if (_isSelectingBoxToLearn)
+                {
+                    await LearnGrammarAsync(result);
+                }
                 else
                 {
                     CopyResultToClipboard(result, resultBox);
                 }
             };
-            
-            resultBox.MouseEnter += (s, e) => 
+
+            resultBox.MouseEnter += (s, e) =>
             {
                 resultBox.BackColor = Color.FromArgb(255, 255, 200); // Highlight on hover
             };
-            resultBox.MouseLeave += (s, e) => 
+            resultBox.MouseLeave += (s, e) =>
             {
                 resultBox.BackColor = originalColorForClosure; // Restore original color
             };
@@ -548,46 +1060,93 @@ public class TranslationPopupForm : Form
             {
                 if (control is TextBox textBox)
                 {
-                    textBox.Width = resultsPanel.ClientSize.Width - (spacing * 2) - SystemInformation.VerticalScrollBarWidth;
+                    textBox.Width = resultsPanel.ClientSize.Width - (spacing * 2) -
+                                    SystemInformation.VerticalScrollBarWidth;
                 }
             }
         };
     }
 
-    private int GetTextHeight(string text, Font font, int width)
-    {
-        using (var g = this.CreateGraphics())
-        {
-            var size = g.MeasureString(text, font, width);
-            return Math.Max(50, (int)size.Height + 20); // Minimum 50px, add padding
-        }
-    }
-
     private void CopyResultToClipboard(string text, TextBox resultBox)
     {
+        if (this.IsDisposed || this.Disposing || resultBox.IsDisposed)
+            return;
+
         try
         {
             _clipboardManager.SetClipboardText(text, false);
-            
+
             // Visual feedback
             var originalColor = resultBox.BackColor;
             resultBox.BackColor = Color.FromArgb(200, 255, 200); // Green flash
-            
+
             var timer = new System.Windows.Forms.Timer { Interval = 300 };
             timer.Tick += (s, e) =>
             {
-                resultBox.BackColor = originalColor;
+                if (this.IsDisposed || this.Disposing || resultBox.IsDisposed)
+                {
+                    timer.Stop();
+                    timer.Dispose();
+                    return;
+                }
+
+                try
+                {
+                    resultBox.BackColor = originalColor;
+                }
+                catch (ObjectDisposedException)
+                {
+                    // Control was disposed, ignore
+                }
+
                 timer.Stop();
                 timer.Dispose();
             };
             timer.Start();
+
+            // Update title if in selection mode
+            if (_isSelectionMode && !titleLabel.IsDisposed)
+            {
+                titleLabel.Text = "✓ Copied to clipboard! Click another option or close this window.";
+                titleLabel.ForeColor = Color.FromArgb(0, 150, 0);
+
+                var resetTimer = new System.Windows.Forms.Timer { Interval = 2000 };
+                resetTimer.Tick += (s2, e2) =>
+                {
+                    if (this.IsDisposed || this.Disposing || titleLabel.IsDisposed)
+                    {
+                        resetTimer.Stop();
+                        resetTimer.Dispose();
+                        return;
+                    }
+
+                    try
+                    {
+                        titleLabel.Text =
+                            "Multiple translation options found. Click on any option to copy to clipboard:";
+                        titleLabel.ForeColor = Color.FromArgb(0, 120, 215);
+                    }
+                    catch (ObjectDisposedException)
+                    {
+                        // Control was disposed, ignore
+                    }
+
+                    resetTimer.Stop();
+                    resetTimer.Dispose();
+                };
+                resetTimer.Start();
+            }
 
             _loggingService.LogInformation("Result copied to clipboard from popup");
         }
         catch (Exception ex)
         {
             _loggingService.LogError("Error copying to clipboard", ex);
-            MessageBox.Show($"Error copying to clipboard: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            if (!this.IsDisposed && !this.Disposing)
+            {
+                MessageBox.Show($"Error copying to clipboard: {ex.Message}", "Error", MessageBoxButtons.OK,
+                    MessageBoxIcon.Error);
+            }
         }
     }
 
@@ -595,10 +1154,40 @@ public class TranslationPopupForm : Form
     {
         if (disposing)
         {
-            autoCloseTimer?.Dispose();
-            progressTimer?.Dispose();
-            _cancellationTokenSource?.Dispose();
+            // Stop all timers before disposing
+            try
+            {
+                autoCloseTimer?.Stop();
+                progressTimer?.Stop();
+            }
+            catch
+            {
+                // Ignore errors when stopping timers
+            }
+
+            // Cancel any ongoing operations
+            try
+            {
+                _cancellationTokenSource?.Cancel();
+                _cancellationTokenSource?.Dispose();
+            }
+            catch
+            {
+                // Ignore errors when canceling operations
+            }
+
+            // Dispose timers
+            try
+            {
+                autoCloseTimer?.Dispose();
+                progressTimer?.Dispose();
+            }
+            catch
+            {
+                // Ignore errors when disposing timers
+            }
         }
+
         base.Dispose(disposing);
     }
 }

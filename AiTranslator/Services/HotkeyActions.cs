@@ -14,6 +14,7 @@ public class HotkeyActions
     private readonly INotificationService _notificationService;
     private readonly ClipboardManager _clipboardManager;
     private readonly SelectionManager _selectionManager;
+    private readonly IGrammarLearnerService _grammarLearnerService;
 
     public HotkeyActions(
         ITranslationService translationService,
@@ -23,7 +24,8 @@ public class HotkeyActions
         ILoggingService loggingService,
         INotificationService notificationService,
         ClipboardManager clipboardManager,
-        SelectionManager selectionManager)
+        SelectionManager selectionManager,
+        IGrammarLearnerService grammarLearnerService)
     {
         _translationService = translationService;
         _ttsService = ttsService;
@@ -33,59 +35,29 @@ public class HotkeyActions
         _notificationService = notificationService;
         _clipboardManager = clipboardManager;
         _selectionManager = selectionManager;
+        _grammarLearnerService = grammarLearnerService;
     }
 
-    public void ShowPopupTranslation(TranslationType type)
-    {
-        try
-        {
-            var clipboardText = _clipboardManager.GetClipboardText();
-            
-            if (string.IsNullOrWhiteSpace(clipboardText))
-            {
-                ShowNotification("Clipboard is empty", "Cannot translate empty clipboard");
-                return;
-            }
-
-            var popup = new TranslationPopupForm(
-                _translationService,
-                _ttsService,
-                _languageDetector,
-                _configService,
-                _loggingService,
-                _clipboardManager
-            );
-
-            popup.ShowPopup(clipboardText, type);
-        }
-        catch (Exception ex)
-        {
-            _loggingService.LogError("Error showing popup translation", ex);
-            ShowNotification("Error", $"Failed to show translation popup: {ex.Message}");
-        }
-    }
-
-    public async void ReplaceClipboardWithTranslation(TranslationType type)
+    /// <summary>
+    /// Unified translation method that uses only selected text (no clipboard fallback)
+    /// </summary>
+    public async void Translate(TranslationType type)
     {
         LoadingPopupForm? loadingPopup = null;
         
         try
         {
-            // First, try to get selected text
+            // Get selected text - this is the only source
             var selectedText = await _selectionManager.GetSelectedTextAsync();
             
-            // If no text selected, fall back to clipboard
-            var textToTranslate = !string.IsNullOrWhiteSpace(selectedText) 
-                ? selectedText 
-                : _clipboardManager.GetClipboardText();
-            
-            if (string.IsNullOrWhiteSpace(textToTranslate))
+            // If no text selected, show notification and return
+            if (string.IsNullOrWhiteSpace(selectedText))
             {
-                ShowNotification("No text found", "Please select text or copy to clipboard");
+                ShowNotification("No text selected", "Please select text in the application first");
                 return;
             }
 
-            var hasSelectedText = !string.IsNullOrWhiteSpace(selectedText);
+            var hasSelectedText = true; // Always true since we only use selected text
 
             loadingPopup = new LoadingPopupForm();
             loadingPopup.ShowLoading("Translating...");
@@ -95,13 +67,13 @@ public class HotkeyActions
             switch (type)
             {
                 case TranslationType.PersianToEnglish:
-                    response = await _translationService.TranslatePersianToEnglishAsync(textToTranslate);
+                    response = await _translationService.TranslatePersianToEnglishAsync(selectedText);
                     break;
                 case TranslationType.EnglishToPersian:
-                    response = await _translationService.TranslateEnglishToPersianAsync(textToTranslate);
+                    response = await _translationService.TranslateEnglishToPersianAsync(selectedText);
                     break;
                 case TranslationType.GrammarFix:
-                    response = await _translationService.FixGrammarAsync(textToTranslate);
+                    response = await _translationService.FixGrammarAsync(selectedText);
                     break;
                 default:
                     throw new ArgumentException("Invalid translation type");
@@ -115,28 +87,18 @@ public class HotkeyActions
             if (response.Success)
             {
                 // Parse response to check for multiple options separated by %%%%%
-                var options = ParseTranslationOptions(response.Text);
+                var options = TranslationHelper.ParseTranslationOptions(response.Text);
 
                 if (options.Count > 1)
                 {
-                    // Show selection form for multiple options
-                    ShowSelectionForm(options, hasSelectedText);
+                    // Multiple options: show unified popup form in selection mode
+                    ShowUnifiedPopupForm(options, true, type, selectedText);
                 }
                 else
                 {
-                    // Single option
-                    if (hasSelectedText)
-                    {
-                        // Insert back into the application
-                        await _selectionManager.InsertTextAsync(options[0]);
-                        ShowNotification("Translation Complete", "Text replaced in application");
-                }
-                else
-                {
-                        // Copy to clipboard
-                    _clipboardManager.SetClipboardText(options[0], true);
-                    ShowNotification("Translation Complete", "Clipboard updated with translation");
-                    }
+                    // Single option: insert directly into the application
+                    await _selectionManager.InsertTextAsync(options[0]);
+                    ShowNotification("Translation Complete", "Text replaced in application");
                 }
             }
             else
@@ -146,7 +108,7 @@ public class HotkeyActions
         }
         catch (Exception ex)
         {
-            _loggingService.LogError("Error in clipboard replace", ex);
+            _loggingService.LogError("Error in unified translate", ex);
             ShowNotification("Error", $"Translation failed: {ex.Message}");
         }
         finally
@@ -156,40 +118,28 @@ public class HotkeyActions
         }
     }
 
-    private List<string> ParseTranslationOptions(string text)
-    {
-        if (string.IsNullOrWhiteSpace(text))
-            return new List<string> { text };
 
-        // Split by %%%%% separator
-        var options = text.Split(new[] { "%%%%%" }, StringSplitOptions.RemoveEmptyEntries)
-                          .Select(o => o.Trim())
-                          .Where(o => !string.IsNullOrWhiteSpace(o))
-                          .ToList();
-
-        return options.Count > 0 ? options : new List<string> { text };
-    }
-
-    private void ShowSelectionForm(List<string> options, bool hasSelectedText)
+    private void ShowUnifiedPopupForm(List<string> options, bool hasSelectedText, TranslationType type, string sourceText)
     {
         try
         {
-            var selectionForm = new SelectionForm(
-                options, 
-                _configService, 
-                _ttsService, 
-                _languageDetector, 
+            var popup = new TranslationPopupForm(
+                _translationService,
+                _ttsService,
+                _languageDetector,
+                _configService,
                 _loggingService,
-                hasSelectedText ? _selectionManager : null);
-            selectionForm.ShowDialog();
+                _clipboardManager,
+                _selectionManager, // Always pass SelectionManager since we only use selected text
+                _grammarLearnerService); // Pass GrammarLearnerService for Learn button
+            
+            // Show with unified design - selection mode with pre-translated options
+            popup.ShowPopup(sourceText, type, null, options, true);
         }
         catch (Exception ex)
         {
-            _loggingService.LogError("Error showing selection form", ex);
-            
-            // Fallback: copy first option
-            _clipboardManager.SetClipboardText(options[0], true);
-            ShowNotification("Translation Complete", $"Clipboard updated (showing {options.Count} options)");
+            _loggingService.LogError("Error showing unified popup form", ex);
+            ShowNotification("Error", $"Failed to show translation options: {ex.Message}");
         }
     }
 
@@ -221,19 +171,20 @@ public class HotkeyActions
         }
     }
 
-    public void AutoDetectAndTranslate()
+    public async void AutoDetectAndTranslate()
     {
         try
         {
-            var clipboardText = _clipboardManager.GetClipboardText();
+            // Get selected text - this is the only source
+            var selectedText = await _selectionManager.GetSelectedTextAsync();
             
-            if (string.IsNullOrWhiteSpace(clipboardText))
+            if (string.IsNullOrWhiteSpace(selectedText))
             {
-                ShowNotification("Clipboard is empty", "Cannot translate empty clipboard");
+                ShowNotification("No text selected", "Please select text in the application first");
                 return;
             }
 
-            var language = _languageDetector.DetectLanguage(clipboardText);
+            var language = _languageDetector.DetectLanguage(selectedText);
             TranslationType type;
 
             if (language == Language.Persian)
@@ -246,11 +197,11 @@ public class HotkeyActions
             }
             else
             {
-                ShowNotification("Unknown Language", "Cannot detect language of clipboard text");
+                ShowNotification("Unknown Language", "Cannot detect language of selected text");
                 return;
             }
 
-            ShowPopupTranslation(type);
+            Translate(type);
         }
         catch (Exception ex)
         {

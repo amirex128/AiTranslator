@@ -8,6 +8,6 @@ public class UiSettings
     public string Theme { get; set; } = "Modern";
     public float MainPageFontSize { get; set; } = 10F;
     public float PopupFontSize { get; set; } = 10F;
-    public float SelectionFormFontSize { get; set; } = 9F;
+    public float GrammarLearnerFontSize { get; set; } = 10F;
 }
 

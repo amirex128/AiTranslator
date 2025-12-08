@@ -1,5 +1,4 @@
 using System.Runtime.InteropServices;
-using System.Text;
 using System.Windows.Forms;
 
 namespace AiTranslator.Utilities;
@@ -17,8 +16,6 @@ public class SelectionManager
     [DllImport("user32.dll")]
     private static extern bool SetForegroundWindow(IntPtr hWnd);
 
-    [DllImport("user32.dll")]
-    private static extern int GetWindowText(IntPtr hWnd, StringBuilder text, int count);
 
     [DllImport("user32.dll")]
     private static extern uint GetWindowThreadProcessId(IntPtr hWnd, IntPtr lpdwProcessId);
@@ -39,11 +36,10 @@ public class SelectionManager
     private const int VK_C = 0x43;
     private const int VK_V = 0x56;
     private const uint KEYEVENTF_KEYUP = 0x0002;
-    private const int MAX_RETRIES = 3;
-    private const int RETRY_DELAY_MS = 150;
+    private const int MAX_RETRIES = 5; // Increased retries for better reliability
+    private const int RETRY_DELAY_MS = 200; // Increased delay for better stability
 
     private IntPtr _lastActiveWindow;
-    private string _lastActiveWindowTitle = string.Empty;
 
     public SelectionManager(ClipboardManager clipboardManager)
     {
@@ -58,7 +54,6 @@ public class SelectionManager
     {
         // Store the current active window BEFORE any operations
         _lastActiveWindow = GetForegroundWindow();
-        _lastActiveWindowTitle = GetActiveWindowTitle();
 
         // Save current clipboard content
         var originalClipboard = _clipboardManager.GetClipboardText();
@@ -129,22 +124,31 @@ public class SelectionManager
                 _lastActiveWindow = GetForegroundWindow();
             }
 
-            // Enhanced focus restoration
+            // Enhanced focus restoration with multiple attempts
             if (_lastActiveWindow != IntPtr.Zero && IsWindow(_lastActiveWindow))
             {
                 // Use AttachThreadInput for better focus control
                 var foregroundThread = GetWindowThreadProcessId(GetForegroundWindow(), IntPtr.Zero);
                 var targetThread = GetWindowThreadProcessId(_lastActiveWindow, IntPtr.Zero);
                 
+                bool attached = false;
                 if (foregroundThread != targetThread)
                 {
-                    AttachThreadInput(foregroundThread, targetThread, true);
+                    attached = AttachThreadInput(foregroundThread, targetThread, true);
                 }
 
-                SetForegroundWindow(_lastActiveWindow);
-                await Task.Delay(100 + (attempt * 30)); // Progressive delay
+                // Multiple focus attempts for better reliability
+                for (int focusAttempt = 0; focusAttempt < 2; focusAttempt++)
+                {
+                    SetForegroundWindow(_lastActiveWindow);
+                    await Task.Delay(120 + (attempt * 40) + (focusAttempt * 30)); // Progressive delay
+                    
+                    // Verify focus was set
+                    if (GetForegroundWindow() == _lastActiveWindow)
+                        break;
+                }
 
-                if (foregroundThread != targetThread)
+                if (attached && foregroundThread != targetThread)
                 {
                     AttachThreadInput(foregroundThread, targetThread, false);
                 }
@@ -153,8 +157,8 @@ public class SelectionManager
             // Send Ctrl+C using keybd_event
             SendCtrlC();
 
-            // Wait for clipboard to update with progressive delay
-            await Task.Delay(200 + (attempt * 50));
+            // Wait for clipboard to update with progressive delay (longer for reliability)
+            await Task.Delay(250 + (attempt * 75));
 
             // Get the copied text
             var selectedText = _clipboardManager.GetClipboardText();
@@ -193,7 +197,7 @@ public class SelectionManager
 
             // Use SendKeys as fallback
             SendKeys.SendWait("^c");
-            await Task.Delay(250);
+            await Task.Delay(300); // Longer delay for SendKeys
 
             var selectedText = _clipboardManager.GetClipboardText();
 
@@ -256,7 +260,7 @@ public class SelectionManager
 
                     // Send Ctrl+C
                     SendCtrlC();
-                    await Task.Delay(300);
+                    await Task.Delay(350); // Longer delay for enhanced focus method
 
                     var selectedText = _clipboardManager.GetClipboardText();
 
@@ -334,19 +338,19 @@ public class SelectionManager
         {
             // Press Ctrl
             keybd_event(VK_CONTROL, 0, 0, UIntPtr.Zero);
-            Thread.Sleep(15); // Slightly longer delay
+            Thread.Sleep(20); // Increased delay for better reliability
             
             // Press C
             keybd_event(VK_C, 0, 0, UIntPtr.Zero);
-            Thread.Sleep(15);
+            Thread.Sleep(20);
             
             // Release C
             keybd_event(VK_C, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
-            Thread.Sleep(15);
+            Thread.Sleep(20);
             
             // Release Ctrl
             keybd_event(VK_CONTROL, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
-            Thread.Sleep(10); // Small delay after release
+            Thread.Sleep(15); // Increased delay after release
         }
         catch
         {
@@ -363,48 +367,40 @@ public class SelectionManager
     }
 
     /// <summary>
-    /// Sends Ctrl+V using Windows API
+    /// Sends Ctrl+V using Windows API with enhanced reliability
     /// </summary>
     private void SendCtrlV()
     {
-        // Press Ctrl
-        keybd_event(VK_CONTROL, 0, 0, UIntPtr.Zero);
-        Thread.Sleep(10);
-        
-        // Press V
-        keybd_event(VK_V, 0, 0, UIntPtr.Zero);
-        Thread.Sleep(10);
-        
-        // Release V
-        keybd_event(VK_V, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
-        Thread.Sleep(10);
-        
-        // Release Ctrl
-        keybd_event(VK_CONTROL, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
-    }
-
-    /// <summary>
-    /// Gets the title of the active window
-    /// </summary>
-    public string GetActiveWindowTitle()
-    {
-        const int nChars = 256;
-        var buff = new StringBuilder(nChars);
-        var handle = GetForegroundWindow();
-
-        if (GetWindowText(handle, buff, nChars) > 0)
+        try
         {
-            return buff.ToString();
+            // Press Ctrl
+            keybd_event(VK_CONTROL, 0, 0, UIntPtr.Zero);
+            Thread.Sleep(20); // Increased delay
+            
+            // Press V
+            keybd_event(VK_V, 0, 0, UIntPtr.Zero);
+            Thread.Sleep(20);
+            
+            // Release V
+            keybd_event(VK_V, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
+            Thread.Sleep(20);
+            
+            // Release Ctrl
+            keybd_event(VK_CONTROL, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
+            Thread.Sleep(15); // Delay after release
         }
-
-        return string.Empty;
+        catch
+        {
+            // If keybd_event fails, try SendKeys as fallback
+            try
+            {
+                SendKeys.SendWait("^v");
+            }
+            catch
+            {
+                // Ignore
+            }
+        }
     }
 
-    /// <summary>
-    /// Gets information about the last active window
-    /// </summary>
-    public (IntPtr Handle, string Title) GetLastActiveWindow()
-    {
-        return (_lastActiveWindow, _lastActiveWindowTitle);
-    }
 }

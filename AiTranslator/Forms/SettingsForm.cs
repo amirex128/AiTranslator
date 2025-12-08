@@ -10,9 +10,10 @@ public class SettingsForm : Form
     private TabControl tabControl = null!;
     
     // API Configuration Tab
-    private TextBox enToFaEndpointTextBox = null!;
-    private TextBox faToEnEndpointTextBox = null!;
-    private TextBox grammarFixEndpointTextBox = null!;
+    private TranslationApiConfigControl enToFaConfigControl = null!;
+    private TranslationApiConfigControl faToEnConfigControl = null!;
+    private TranslationApiConfigControl grammarFixConfigControl = null!;
+    private TranslationApiConfigControl grammarLearnerConfigControl = null!;
     
     // UI Preferences Tab
     private NumericUpDown popupTimeoutNumeric = null!;
@@ -22,7 +23,7 @@ public class SettingsForm : Form
     private CheckBox startWithWindowsCheckBox = null!;
     private NumericUpDown mainPageFontSizeNumeric = null!;
     private NumericUpDown popupFontSizeNumeric = null!;
-    private NumericUpDown selectionFormFontSizeNumeric = null!;
+    private NumericUpDown grammarLearnerFontSizeNumeric = null!;
     
     // Advanced Tab
     private NumericUpDown timeoutMinutesNumeric = null!;
@@ -36,6 +37,16 @@ public class SettingsForm : Form
     private NumericUpDown cacheExpirationDaysNumeric = null!;
     private Button clearCacheButton = null!;
     
+    // Shortcuts Tab
+    private HotkeyConfigControl translatePersianToEnglishControl = null!;
+    private HotkeyConfigControl translateEnglishToPersianControl = null!;
+    private HotkeyConfigControl translateGrammarFixControl = null!;
+    private HotkeyConfigControl readPersianControl = null!;
+    private HotkeyConfigControl readEnglishControl = null!;
+    private HotkeyConfigControl autoDetectTranslateControl = null!;
+    private HotkeyConfigControl autoDetectReadControl = null!;
+    private HotkeyConfigControl undoClipboardControl = null!;
+    
     private Button saveButton = null!;
     private Button cancelButton = null!;
 
@@ -44,6 +55,19 @@ public class SettingsForm : Form
         _configService = configService;
         InitializeComponents();
         LoadSettings();
+    }
+
+    public void SelectShortcutsTab()
+    {
+        // Find and select the Shortcuts tab
+        foreach (TabPage tab in tabControl.TabPages)
+        {
+            if (tab.Text == "Shortcuts")
+            {
+                tabControl.SelectedTab = tab;
+                break;
+            }
+        }
     }
 
     private void InitializeComponents()
@@ -69,6 +93,7 @@ public class SettingsForm : Form
         // Create tabs
         tabControl.TabPages.Add(CreateApiConfigTab());
         tabControl.TabPages.Add(CreateUiPreferencesTab());
+        tabControl.TabPages.Add(CreateShortcutsTab());
         tabControl.TabPages.Add(CreateAdvancedTab());
 
         var buttonsPanel = new Panel
@@ -110,54 +135,43 @@ public class SettingsForm : Form
         var tab = new TabPage("API Configuration");
         var panel = new Panel { Dock = DockStyle.Fill, Padding = new Padding(10), AutoScroll = true };
 
+        var config = _configService.Config;
         int y = 10;
 
-        // EN to FA Endpoint
-        var enToFaLabel = new Label
-        {
-            Text = "English to Persian Endpoint:",
-            Location = new Point(10, y),
-            Size = new Size(200, 20)
-        };
-        enToFaEndpointTextBox = new TextBox
-        {
-            Location = new Point(10, y + 20),
-            Size = new Size(540, 20)
-        };
-        panel.Controls.Add(enToFaLabel);
-        panel.Controls.Add(enToFaEndpointTextBox);
-        y += 50;
+        // English to Persian
+        enToFaConfigControl = new TranslationApiConfigControl(
+            "English to Persian Translation",
+            config.ApiEndpoints.EnglishToPersian,
+            y,
+            panel);
+        enToFaConfigControl.LoadFromConfig();
+        y += 185; // Space for one config control
 
-        // FA to EN Endpoint
-        var faToEnLabel = new Label
-        {
-            Text = "Persian to English Endpoint:",
-            Location = new Point(10, y),
-            Size = new Size(200, 20)
-        };
-        faToEnEndpointTextBox = new TextBox
-        {
-            Location = new Point(10, y + 20),
-            Size = new Size(540, 20)
-        };
-        panel.Controls.Add(faToEnLabel);
-        panel.Controls.Add(faToEnEndpointTextBox);
-        y += 50;
+        // Persian to English
+        faToEnConfigControl = new TranslationApiConfigControl(
+            "Persian to English Translation",
+            config.ApiEndpoints.PersianToEnglish,
+            y,
+            panel);
+        faToEnConfigControl.LoadFromConfig();
+        y += 185;
 
-        // Grammar Fix Endpoint
-        var grammarFixLabel = new Label
-        {
-            Text = "Grammar Fix Endpoint:",
-            Location = new Point(10, y),
-            Size = new Size(200, 20)
-        };
-        grammarFixEndpointTextBox = new TextBox
-        {
-            Location = new Point(10, y + 20),
-            Size = new Size(540, 20)
-        };
-        panel.Controls.Add(grammarFixLabel);
-        panel.Controls.Add(grammarFixEndpointTextBox);
+        // Grammar Fix
+        grammarFixConfigControl = new TranslationApiConfigControl(
+            "Grammar Fix",
+            config.ApiEndpoints.GrammarFix,
+            y,
+            panel);
+        grammarFixConfigControl.LoadFromConfig();
+        y += 185;
+
+        // Grammar Learner
+        grammarLearnerConfigControl = new TranslationApiConfigControl(
+            "Grammar Learner",
+            config.ApiEndpoints.GrammarLearner,
+            y,
+            panel);
+        grammarLearnerConfigControl.LoadFromConfig();
 
         tab.Controls.Add(panel);
         return tab;
@@ -286,14 +300,14 @@ public class SettingsForm : Form
         panel.Controls.Add(popupFontSizeNumeric);
         y += 30;
 
-        // Selection Form Font Size
-        var selectionFormFontSizeLabel = new Label
+        // Grammar Learner Font Size
+        var grammarLearnerFontSizeLabel = new Label
         {
-            Text = "Selection Form Font Size:",
+            Text = "Grammar Learner Font Size:",
             Location = new Point(10, y),
             Size = new Size(200, 20)
         };
-        selectionFormFontSizeNumeric = new NumericUpDown
+        grammarLearnerFontSizeNumeric = new NumericUpDown
         {
             Location = new Point(220, y),
             Size = new Size(100, 20),
@@ -301,10 +315,10 @@ public class SettingsForm : Form
             Maximum = 24,
             DecimalPlaces = 1,
             Increment = 0.5m,
-            Value = 9
+            Value = 10
         };
-        panel.Controls.Add(selectionFormFontSizeLabel);
-        panel.Controls.Add(selectionFormFontSizeNumeric);
+        panel.Controls.Add(grammarLearnerFontSizeLabel);
+        panel.Controls.Add(grammarLearnerFontSizeNumeric);
 
         tab.Controls.Add(panel);
         return tab;
@@ -551,6 +565,81 @@ public class SettingsForm : Form
         return tab;
     }
 
+    private TabPage CreateShortcutsTab()
+    {
+        var tab = new TabPage("Shortcuts");
+        var panel = new Panel { Dock = DockStyle.Fill, Padding = new Padding(10), AutoScroll = true };
+
+        var config = _configService.Config;
+        int y = 10;
+
+        // Translate Persian to English
+        translatePersianToEnglishControl = new HotkeyConfigControl(
+            "Translate: Persian to English",
+            config.Hotkeys.TranslatePersianToEnglish,
+            y,
+            panel);
+        y += 70;
+
+        // Translate English to Persian
+        translateEnglishToPersianControl = new HotkeyConfigControl(
+            "Translate: English to Persian",
+            config.Hotkeys.TranslateEnglishToPersian,
+            y,
+            panel);
+        y += 70;
+
+        // Translate Grammar Fix
+        translateGrammarFixControl = new HotkeyConfigControl(
+            "Translate: Grammar Fix",
+            config.Hotkeys.TranslateGrammarFix,
+            y,
+            panel);
+        y += 70;
+
+        // Read Persian
+        readPersianControl = new HotkeyConfigControl(
+            "Read Persian Text",
+            config.Hotkeys.ReadPersian,
+            y,
+            panel);
+        y += 70;
+
+        // Read English
+        readEnglishControl = new HotkeyConfigControl(
+            "Read English Text",
+            config.Hotkeys.ReadEnglish,
+            y,
+            panel);
+        y += 70;
+
+        // Auto-detect and Translate
+        autoDetectTranslateControl = new HotkeyConfigControl(
+            "Auto-detect and Translate (Popup)",
+            config.Hotkeys.AutoDetectTranslate,
+            y,
+            panel);
+        y += 70;
+
+        // Auto-detect and Read
+        autoDetectReadControl = new HotkeyConfigControl(
+            "Auto-detect and Read",
+            config.Hotkeys.AutoDetectRead,
+            y,
+            panel);
+        y += 70;
+
+        // Undo Clipboard
+        undoClipboardControl = new HotkeyConfigControl(
+            "Undo Clipboard Replace",
+            config.Hotkeys.UndoClipboard,
+            y,
+            panel);
+
+        tab.Controls.Add(panel);
+        return tab;
+    }
+
     private void OnTtsProviderChanged(object? sender, EventArgs e)
     {
         var isLocalAI = ttsProviderComboBox.SelectedItem?.ToString() == "LocalAI";
@@ -563,10 +652,7 @@ public class SettingsForm : Form
     {
         var config = _configService.Config;
 
-        // API Configuration
-        enToFaEndpointTextBox.Text = config.ApiEndpoints.EnglishToPersian;
-        faToEnEndpointTextBox.Text = config.ApiEndpoints.PersianToEnglish;
-        grammarFixEndpointTextBox.Text = config.ApiEndpoints.GrammarFix;
+        // API Configuration (loaded in CreateApiConfigTab)
 
         // UI Preferences
         popupTimeoutNumeric.Value = config.Ui.PopupAutoCloseSeconds;
@@ -576,7 +662,7 @@ public class SettingsForm : Form
         startWithWindowsCheckBox.Checked = config.StartWithWindows;
         mainPageFontSizeNumeric.Value = (decimal)config.Ui.MainPageFontSize;
         popupFontSizeNumeric.Value = (decimal)config.Ui.PopupFontSize;
-        selectionFormFontSizeNumeric.Value = (decimal)config.Ui.SelectionFormFontSize;
+        grammarLearnerFontSizeNumeric.Value = (decimal)config.Ui.GrammarLearnerFontSize;
 
         // Advanced - TTS Settings
         ttsProviderComboBox.SelectedItem = config.TtsSettings.Provider.ToString();
@@ -593,6 +679,8 @@ public class SettingsForm : Form
         // Advanced - Logging Settings
         enableLoggingCheckBox.Checked = config.Logging.EnableLogging;
         logLevelComboBox.SelectedItem = config.Logging.LogLevel;
+
+        // Shortcuts (loaded in CreateShortcutsTab)
     }
 
     private void OnSaveButtonClick(object? sender, EventArgs e)
@@ -600,9 +688,10 @@ public class SettingsForm : Form
         var config = _configService.Config;
 
         // API Configuration
-        config.ApiEndpoints.EnglishToPersian = enToFaEndpointTextBox.Text;
-        config.ApiEndpoints.PersianToEnglish = faToEnEndpointTextBox.Text;
-        config.ApiEndpoints.GrammarFix = grammarFixEndpointTextBox.Text;
+        enToFaConfigControl.SaveToConfig();
+        faToEnConfigControl.SaveToConfig();
+        grammarFixConfigControl.SaveToConfig();
+        grammarLearnerConfigControl.SaveToConfig();
 
         // UI Preferences
         config.Ui.PopupAutoCloseSeconds = (int)popupTimeoutNumeric.Value;
@@ -612,7 +701,7 @@ public class SettingsForm : Form
         config.StartWithWindows = startWithWindowsCheckBox.Checked;
         config.Ui.MainPageFontSize = (float)mainPageFontSizeNumeric.Value;
         config.Ui.PopupFontSize = (float)popupFontSizeNumeric.Value;
-        config.Ui.SelectionFormFontSize = (float)selectionFormFontSizeNumeric.Value;
+        config.Ui.GrammarLearnerFontSize = (float)grammarLearnerFontSizeNumeric.Value;
 
         // Advanced - TTS Settings
         var selectedProvider = ttsProviderComboBox.SelectedItem?.ToString() ?? "Google";
@@ -629,6 +718,16 @@ public class SettingsForm : Form
         // Advanced - Logging Settings
         config.Logging.EnableLogging = enableLoggingCheckBox.Checked;
         config.Logging.LogLevel = logLevelComboBox.SelectedItem?.ToString() ?? "Information";
+
+        // Shortcuts
+        translatePersianToEnglishControl.SaveToConfig(config.Hotkeys.TranslatePersianToEnglish);
+        translateEnglishToPersianControl.SaveToConfig(config.Hotkeys.TranslateEnglishToPersian);
+        translateGrammarFixControl.SaveToConfig(config.Hotkeys.TranslateGrammarFix);
+        readPersianControl.SaveToConfig(config.Hotkeys.ReadPersian);
+        readEnglishControl.SaveToConfig(config.Hotkeys.ReadEnglish);
+        autoDetectTranslateControl.SaveToConfig(config.Hotkeys.AutoDetectTranslate);
+        autoDetectReadControl.SaveToConfig(config.Hotkeys.AutoDetectRead);
+        undoClipboardControl.SaveToConfig(config.Hotkeys.UndoClipboard);
 
         try
         {

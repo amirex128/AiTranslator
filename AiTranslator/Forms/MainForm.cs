@@ -1,6 +1,7 @@
 using AiTranslator.Models;
 using AiTranslator.Services;
 using AiTranslator.Utilities;
+using AiTranslator;
 
 namespace AiTranslator.Forms;
 
@@ -13,6 +14,7 @@ public partial class MainForm : Form
     private readonly ILoggingService _loggingService;
     private readonly HotkeyManager _hotkeyManager;
     private readonly ClipboardManager _clipboardManager;
+    private readonly IGrammarLearnerService _grammarLearnerService;
     
     private CancellationTokenSource? _currentOperationCancellation;
     private TextBox? _activeTextBox;
@@ -27,7 +29,8 @@ public partial class MainForm : Form
         ILanguageDetector languageDetector,
         ILoggingService loggingService,
         HotkeyManager hotkeyManager,
-        ClipboardManager clipboardManager)
+        ClipboardManager clipboardManager,
+        IGrammarLearnerService grammarLearnerService)
     {
         _configService = configService;
         _translationService = translationService;
@@ -36,11 +39,11 @@ public partial class MainForm : Form
         _loggingService = loggingService;
         _hotkeyManager = hotkeyManager;
         _clipboardManager = clipboardManager;
+        _grammarLearnerService = grammarLearnerService;
 
         InitializeComponent();
         InitializeEventHandlers();
         InitializeWindowSettings();
-        LoadShortcutsList();
     }
 
     private void InitializeEventHandlers()
@@ -52,13 +55,15 @@ public partial class MainForm : Form
         englishToPersianTextBox.Enter += OnTextBoxEnter;
         grammarFixTextBox.TextChanged += OnTextBoxTextChanged;
         grammarFixTextBox.Enter += OnTextBoxEnter;
+        grammarLearnerTextBox.TextChanged += OnTextBoxTextChanged;
+        grammarLearnerTextBox.Enter += OnTextBoxEnter;
 
         // Button events
         translateButton.Click += OnTranslateButtonClick;
         readButton.Click += OnReadButtonClick;
+        learnButton.Click += OnLearnButtonClick;
         cancelButton.Click += OnCancelButtonClick;
         copyResultButton.Click += OnCopyResultButtonClick;
-        toggleShortcutsButton.Click += OnToggleShortcutsButtonClick;
 
         // Menu events
         exitToolStripMenuItem.Click += OnExitMenuItemClick;
@@ -115,6 +120,7 @@ public partial class MainForm : Form
         persianToEnglishTextBox.Font = font;
         englishToPersianTextBox.Font = font;
         grammarFixTextBox.Font = font;
+        grammarLearnerTextBox.Font = font;
 
         // Apply to result tabs (will be applied when tabs are created)
     }
@@ -150,65 +156,14 @@ public partial class MainForm : Form
         persianToEnglishPanel.BackColor = UIConstants.Colors.Surface;
         englishToPersianPanel.BackColor = UIConstants.Colors.Surface;
         grammarFixPanel.BackColor = UIConstants.Colors.Surface;
+        grammarLearnerPanel.BackColor = UIConstants.Colors.Surface;
         
         // Style result panel
         resultPanel.BackColor = UIConstants.Colors.Surface;
         resultTabControl.BackColor = UIConstants.Colors.Background;
         
-        // Style shortcuts panel
-        shortcutsPanel.BackColor = UIConstants.Colors.Surface;
     }
 
-    private void LoadShortcutsList()
-    {
-        shortcutsListView.Items.Clear();
-        var hotkeys = _configService.Config.Hotkeys;
-
-        shortcutsListView.Items.Add(new ListViewItem(new[] { 
-            hotkeys.PopupTranslatePersianToEnglish.ToString(), 
-            "Quick Translate: Persian to English (Popup)" 
-        }));
-        shortcutsListView.Items.Add(new ListViewItem(new[] { 
-            hotkeys.PopupTranslateEnglishToPersian.ToString(), 
-            "Quick Translate: English to Persian (Popup)" 
-        }));
-        shortcutsListView.Items.Add(new ListViewItem(new[] { 
-            hotkeys.PopupTranslateGrammarFix.ToString(), 
-            "Quick Translate: Grammar Fix (Popup)" 
-        }));
-        shortcutsListView.Items.Add(new ListViewItem(new[] { 
-            hotkeys.ClipboardReplacePersianToEnglish.ToString(), 
-            "Clipboard Replace: Persian to English" 
-        }));
-        shortcutsListView.Items.Add(new ListViewItem(new[] { 
-            hotkeys.ClipboardReplaceEnglishToPersian.ToString(), 
-            "Clipboard Replace: English to Persian" 
-        }));
-        shortcutsListView.Items.Add(new ListViewItem(new[] { 
-            hotkeys.ClipboardReplaceGrammarFix.ToString(), 
-            "Clipboard Replace: Grammar Fix" 
-        }));
-        shortcutsListView.Items.Add(new ListViewItem(new[] { 
-            hotkeys.ReadPersian.ToString(), 
-            "Read Persian Text" 
-        }));
-        shortcutsListView.Items.Add(new ListViewItem(new[] { 
-            hotkeys.ReadEnglish.ToString(), 
-            "Read English Text" 
-        }));
-        shortcutsListView.Items.Add(new ListViewItem(new[] { 
-            hotkeys.AutoDetectTranslate.ToString(), 
-            "Auto-detect and Translate (Popup)" 
-        }));
-        shortcutsListView.Items.Add(new ListViewItem(new[] { 
-            hotkeys.AutoDetectRead.ToString(), 
-            "Auto-detect and Read" 
-        }));
-        shortcutsListView.Items.Add(new ListViewItem(new[] { 
-            hotkeys.UndoClipboard.ToString(), 
-            "Undo Clipboard Replace" 
-        }));
-    }
 
     private void OnTextBoxTextChanged(object? sender, EventArgs e)
     {
@@ -250,6 +205,7 @@ public partial class MainForm : Form
         if (textBox == persianToEnglishTextBox) countLabel = persianToEnglishCountLabel;
         else if (textBox == englishToPersianTextBox) countLabel = englishToPersianCountLabel;
         else if (textBox == grammarFixTextBox) countLabel = grammarFixCountLabel;
+        else if (textBox == grammarLearnerTextBox) countLabel = grammarLearnerCountLabel;
 
         if (countLabel != null)
         {
@@ -286,6 +242,11 @@ public partial class MainForm : Form
             grammarFixTextBox.Text = "";
             grammarFixPanel.Height = 35;
         }
+        if (activeTextBox != grammarLearnerTextBox)
+        {
+            grammarLearnerTextBox.Text = "";
+            grammarLearnerPanel.Height = 35;
+        }
 
         ExpandInput(activeTextBox);
     }
@@ -296,6 +257,7 @@ public partial class MainForm : Form
         if (textBox == persianToEnglishTextBox) panel = persianToEnglishPanel;
         else if (textBox == englishToPersianTextBox) panel = englishToPersianPanel;
         else if (textBox == grammarFixTextBox) panel = grammarFixPanel;
+        else if (textBox == grammarLearnerTextBox) panel = grammarLearnerPanel;
 
         if (panel != null)
         {
@@ -305,12 +267,30 @@ public partial class MainForm : Form
 
     private async void OnTranslateButtonClick(object? sender, EventArgs e)
     {
+        // First check if Grammar Learner has text - it should trigger LearnGrammarAsync
+        if (!string.IsNullOrWhiteSpace(grammarLearnerTextBox.Text))
+        {
+            // Show loading state immediately
+            SetLoadingState(true);
+            loadingLabel.Text = "Processing...";
+            UpdateStatus("Learning grammar...");
+            
+            await LearnGrammarAsync(grammarLearnerTextBox.Text);
+            return;
+        }
+
+        // Find the input box that has text (for translation/grammar fix)
         var activeInput = GetActiveInput();
         if (activeInput.textBox == null || string.IsNullOrWhiteSpace(activeInput.textBox.Text))
         {
             UpdateStatus("Please enter text to translate");
             return;
         }
+
+        // Show loading state immediately
+        SetLoadingState(true);
+        loadingLabel.Text = "Processing...";
+        UpdateStatus($"Translating {activeInput.type}...");
 
         await TranslateTextAsync(activeInput.textBox.Text, activeInput.type);
     }
@@ -425,23 +405,6 @@ public partial class MainForm : Form
         }
     }
 
-    private void OnToggleShortcutsButtonClick(object? sender, EventArgs e)
-    {
-        if (shortcutsListView.Visible)
-        {
-            shortcutsListView.Visible = false;
-            shortcutsLabel.Visible = false;
-            shortcutsPanel.Height = 25;
-            toggleShortcutsButton.Text = "Show Shortcuts";
-        }
-        else
-        {
-            shortcutsListView.Visible = true;
-            shortcutsLabel.Visible = true;
-            shortcutsPanel.Height = 182;
-            toggleShortcutsButton.Text = "Hide Shortcuts";
-        }
-    }
 
     private void OnExitMenuItemClick(object? sender, EventArgs e)
     {
@@ -454,8 +417,9 @@ public partial class MainForm : Form
         using var settingsForm = new SettingsForm(_configService);
         if (settingsForm.ShowDialog(this) == DialogResult.OK)
         {
-            // Settings saved, reload shortcuts list
-            LoadShortcutsList();
+            // Settings saved - re-register hotkeys
+            var appContext = ApplicationContext.Instance;
+            appContext?.RegisterHotkeys();
         }
     }
 
@@ -472,9 +436,14 @@ public partial class MainForm : Form
 
     private void OnShortcutsMenuItemClick(object? sender, EventArgs e)
     {
-        if (!shortcutsListView.Visible)
+        // Open Settings and switch to Shortcuts tab
+        using var settingsForm = new SettingsForm(_configService);
+        settingsForm.SelectShortcutsTab();
+        if (settingsForm.ShowDialog(this) == DialogResult.OK)
         {
-            OnToggleShortcutsButtonClick(sender, e);
+            // Settings saved - re-register hotkeys
+            var appContext = ApplicationContext.Instance;
+            appContext?.RegisterHotkeys();
         }
     }
 
@@ -527,10 +496,99 @@ public partial class MainForm : Form
         return (null, TranslationType.PersianToEnglish);
     }
 
+    private async void OnLearnButtonClick(object? sender, EventArgs e)
+    {
+        string? textToLearn = null;
+
+        // Check if grammarLearnerTextBox has text
+        if (!string.IsNullOrWhiteSpace(grammarLearnerTextBox.Text))
+        {
+            textToLearn = grammarLearnerTextBox.Text;
+        }
+        else
+        {
+            // Check active input
+            var activeInput = GetActiveInput();
+            if (activeInput.textBox != null && !string.IsNullOrWhiteSpace(activeInput.textBox.Text))
+            {
+                textToLearn = activeInput.textBox.Text;
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(textToLearn))
+        {
+            UpdateStatus("Please enter text to learn");
+            return;
+        }
+
+        await LearnGrammarAsync(textToLearn);
+    }
+
+    private async Task LearnGrammarAsync(string text)
+    {
+        // Loading state should already be set by OnTranslateButtonClick or OnLearnButtonClick
+        // But we ensure it's set here as well for safety
+        if (!cancelButton.Visible)
+        {
+            SetLoadingState(true);
+            loadingLabel.Text = "Processing...";
+        }
+        UpdateStatus("Learning grammar...");
+
+        _currentOperationCancellation = new CancellationTokenSource();
+
+        try
+        {
+            var response = await _grammarLearnerService.LearnGrammarAsync(text, _currentOperationCancellation.Token);
+
+            if (response == null)
+            {
+                UpdateStatus("Grammar learning failed");
+                if (_configService.Config.Ui.ShowNotifications)
+                {
+                    MessageBox.Show("Failed to learn grammar. Please check your API configuration.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
+                return;
+            }
+
+            // Show Grammar Learner Form
+            var learnerForm = new GrammarLearnerForm(response, _configService);
+            learnerForm.Show();
+
+            UpdateStatus("Grammar learning completed");
+        }
+        catch (OperationCanceledException)
+        {
+            UpdateStatus("Grammar learning cancelled");
+        }
+        catch (Exception ex)
+        {
+            _loggingService.LogError("Grammar learning error in main window", ex);
+            UpdateStatus($"Grammar learning error: {ex.Message}");
+            
+            if (_configService.Config.Ui.ShowNotifications)
+            {
+                MessageBox.Show(ex.Message, "Grammar Learning Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+        finally
+        {
+            SetLoadingState(false);
+            _currentOperationCancellation?.Dispose();
+            _currentOperationCancellation = null;
+        }
+    }
+
     public async Task TranslateTextAsync(string text, TranslationType type)
     {
+        // Loading state should already be set by OnTranslateButtonClick
+        // But we ensure it's set here as well for safety
+        if (!cancelButton.Visible)
+    {
         SetLoadingState(true);
-        UpdateStatus($"Translating...");
+            loadingLabel.Text = "Processing...";
+        }
+        UpdateStatus($"Translating {type}...");
 
         _currentOperationCancellation = new CancellationTokenSource();
 
@@ -660,7 +718,7 @@ public partial class MainForm : Form
         };
         
         // Parse result text by %%%%% separator
-        var results = ParseTranslationOptions(resultText);
+        var results = TranslationHelper.ParseTranslationOptions(resultText);
 
         // Create results panel with auto-scroll
         var resultsPanel = new Panel
@@ -708,19 +766,6 @@ public partial class MainForm : Form
         resultTabControl.SelectedTab = tabPage;
     }
 
-    private List<string> ParseTranslationOptions(string text)
-    {
-        if (string.IsNullOrWhiteSpace(text))
-            return new List<string> { text };
-
-        // Split by %%%%% separator
-        var options = text.Split(new[] { "%%%%%" }, StringSplitOptions.RemoveEmptyEntries)
-                          .Select(o => o.Trim())
-                          .Where(o => !string.IsNullOrWhiteSpace(o))
-                          .ToList();
-
-        return options.Count > 0 ? options : new List<string> { text };
-    }
 
     private void DisplayResultsInPanel(Panel resultsPanel, List<string> results, Font font)
     {
@@ -753,7 +798,7 @@ public partial class MainForm : Form
                 Location = new Point(spacing, yPosition),
                 Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
                 Width = resultsPanel.ClientSize.Width - (spacing * 2) - SystemInformation.VerticalScrollBarWidth,
-                Height = Math.Min(150, GetTextHeight(result, font, resultsPanel.ClientSize.Width - (spacing * 2) - SystemInformation.VerticalScrollBarWidth))
+                Height = Math.Min(150, TranslationHelper.GetTextHeight(this, result, font, resultsPanel.ClientSize.Width - (spacing * 2) - SystemInformation.VerticalScrollBarWidth))
             };
 
             var originalColorForClosure = originalColor;
@@ -802,14 +847,6 @@ public partial class MainForm : Form
         };
     }
 
-    private int GetTextHeight(string text, Font font, int width)
-    {
-        using (var g = this.CreateGraphics())
-        {
-            var size = g.MeasureString(text, font, width);
-            return Math.Max(50, (int)size.Height + 20); // Minimum 50px, add padding
-        }
-    }
 
     private void CopyResultToClipboard(string text, TextBox resultBox)
     {
@@ -878,12 +915,14 @@ public partial class MainForm : Form
     {
         translateButton.Enabled = !isLoading;
         readButton.Enabled = !isLoading;
+        learnButton.Enabled = !isLoading;
         cancelButton.Visible = isLoading;
         loadingLabel.Visible = isLoading;
         
         persianToEnglishTextBox.Enabled = !isLoading;
         englishToPersianTextBox.Enabled = !isLoading;
         grammarFixTextBox.Enabled = !isLoading;
+        grammarLearnerTextBox.Enabled = !isLoading;
     }
 
     private void UpdateStatus(string message)
