@@ -52,27 +52,9 @@ public class ConfigService : IConfigService
         }
         catch (Exception ex)
         {
-            // If config fails to load, try migration as fallback
-            try
-            {
-                var json = File.ReadAllText(_configFilePath);
-                json = MigrateJsonString(json);
-                File.WriteAllText(_configFilePath, json);
-                
-                var options = new JsonSerializerOptions
-                {
-                    PropertyNameCaseInsensitive = true,
-                    PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-                    Converters = { new JsonStringEnumConverter(JsonNamingPolicy.CamelCase) }
-                };
-                _config = JsonSerializer.Deserialize<AppConfig>(json, options) ?? new AppConfig();
-            }
-            catch
-            {
-                // If migration also fails, use defaults
-                _config = new AppConfig();
-                Console.WriteLine($"Error loading configuration: {ex.Message}");
-            }
+            // If config fails to load, use defaults
+            _config = new AppConfig();
+            Console.WriteLine($"Error loading configuration: {ex.Message}");
         }
     }
 
