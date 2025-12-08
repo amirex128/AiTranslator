@@ -5,6 +5,7 @@ namespace AiTranslator.Utilities;
 
 /// <summary>
 /// Manages text selection and insertion across different applications
+/// Enhanced with more robust methods and better timing to prevent side effects
 /// </summary>
 public class SelectionManager
 {
@@ -16,9 +17,11 @@ public class SelectionManager
     [DllImport("user32.dll")]
     private static extern bool SetForegroundWindow(IntPtr hWnd);
 
+    [DllImport("user32.dll")]
+    private static extern bool AllowSetForegroundWindow(int dwProcessId);
 
     [DllImport("user32.dll")]
-    private static extern uint GetWindowThreadProcessId(IntPtr hWnd, IntPtr lpdwProcessId);
+    private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out int lpdwProcessId);
 
     [DllImport("user32.dll")]
     private static extern bool AttachThreadInput(uint idAttach, uint idAttachTo, bool fAttach);
@@ -27,17 +30,62 @@ public class SelectionManager
     private static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);
 
     [DllImport("user32.dll")]
+    private static extern uint SendInput(uint nInputs, INPUT[] pInputs, int cbSize);
+
+    [DllImport("user32.dll")]
     private static extern bool IsWindow(IntPtr hWnd);
 
     [DllImport("user32.dll")]
     private static extern bool IsWindowVisible(IntPtr hWnd);
 
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetMessageExtraInfo();
+
+    [DllImport("user32.dll")]
+    private static extern short GetAsyncKeyState(int vKey);
+
+    [DllImport("user32.dll")]
+    private static extern bool GetKeyboardState(byte[] lpKeyState);
+
+    [DllImport("user32.dll")]
+    private static extern bool SetKeyboardState(byte[] lpKeyState);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct INPUT
+    {
+        public uint type;
+        public INPUTUNION u;
+    }
+
+    [StructLayout(LayoutKind.Explicit)]
+    private struct INPUTUNION
+    {
+        [FieldOffset(0)] public KEYBDINPUT ki;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct KEYBDINPUT
+    {
+        public ushort wVk;
+        public ushort wScan;
+        public uint dwFlags;
+        public uint time;
+        public IntPtr dwExtraInfo;
+    }
+
+    private const uint INPUT_KEYBOARD = 1;
+    private const uint KEYEVENTF_KEYDOWN = 0x0000;
+    private const uint KEYEVENTF_KEYUP = 0x0002;
+    private const uint KEYEVENTF_EXTENDEDKEY = 0x0001;
+    private const uint KEYEVENTF_SCANCODE = 0x0008;
+
     private const int VK_CONTROL = 0x11;
+    private const int VK_LCONTROL = 0xA2;
+    private const int VK_RCONTROL = 0xA3;
     private const int VK_C = 0x43;
     private const int VK_V = 0x56;
-    private const uint KEYEVENTF_KEYUP = 0x0002;
-    private const int MAX_RETRIES = 5; // Increased retries for better reliability
-    private const int RETRY_DELAY_MS = 200; // Increased delay for better stability
+    private const int VK_SHIFT = 0x10;
+    private const int VK_MENU = 0x12; // Alt key
 
     private IntPtr _lastActiveWindow;
 
@@ -48,159 +96,482 @@ public class SelectionManager
 
     /// <summary>
     /// Gets the currently selected text from the active application
-    /// Uses multiple methods with retry logic for maximum reliability
+    /// Uses multiple fallback methods with proper timing to ensure reliability
     /// </summary>
     public async Task<string?> GetSelectedTextAsync()
     {
         // Store the current active window BEFORE any operations
         _lastActiveWindow = GetForegroundWindow();
 
-        // Save current clipboard content
-        var originalClipboard = _clipboardManager.GetClipboardText();
-
-        // Try multiple methods with retries
-        string? selectedText = null;
-
-        // Method 1: keybd_event with retries (most reliable)
-        for (int attempt = 1; attempt <= MAX_RETRIES && string.IsNullOrWhiteSpace(selectedText); attempt++)
+        // Validate window
+        if (_lastActiveWindow == IntPtr.Zero || !IsWindow(_lastActiveWindow) || !IsWindowVisible(_lastActiveWindow))
         {
-            selectedText = await TryGetSelectedTextWithKeybdEvent(originalClipboard, attempt);
-            if (!string.IsNullOrWhiteSpace(selectedText))
-                break;
-            
-            if (attempt < MAX_RETRIES)
-                await Task.Delay(RETRY_DELAY_MS);
-        }
-
-        // Method 2: SendKeys (fallback)
-        if (string.IsNullOrWhiteSpace(selectedText))
-        {
-            selectedText = await TryGetSelectedTextWithSendKeys(originalClipboard);
-        }
-
-        // Method 3: Enhanced focus method
-        if (string.IsNullOrWhiteSpace(selectedText))
-        {
-            selectedText = await TryGetSelectedTextWithEnhancedFocus(originalClipboard);
-        }
-
-        // Restore original clipboard if no text was selected
-        if (string.IsNullOrWhiteSpace(selectedText))
-        {
-            if (!string.IsNullOrEmpty(originalClipboard))
-            {
-                _clipboardManager.SetClipboardText(originalClipboard, false);
-            }
             return null;
         }
 
-        // Restore original clipboard after a delay
+        // Release any stuck keys before attempting to copy
+        await ReleaseStuckKeysAsync();
+
+        // Save current clipboard content
+        var originalClipboard = _clipboardManager.GetClipboardText();
+
+        string? selectedText = null;
+
+        // Method 1: SendKeys.SendWait - Most reliable for clipboard operations
+        selectedText = await TryGetSelectedTextMethod1_SendKeys(originalClipboard);
+        if (!string.IsNullOrWhiteSpace(selectedText))
+        {
+            RestoreClipboardDelayed(originalClipboard);
+            return selectedText;
+        }
+
+        // Method 2: SendKeys with longer delays
+        selectedText = await TryGetSelectedTextMethod2_SendKeysLongDelay(originalClipboard);
+        if (!string.IsNullOrWhiteSpace(selectedText))
+        {
+            RestoreClipboardDelayed(originalClipboard);
+            return selectedText;
+        }
+
+        // Method 3: SendKeys with multiple retries
+        selectedText = await TryGetSelectedTextMethod3_SendKeysRetry(originalClipboard);
+        if (!string.IsNullOrWhiteSpace(selectedText))
+        {
+            RestoreClipboardDelayed(originalClipboard);
+            return selectedText;
+        }
+
+        // Method 4: SendInput with proper key state check
+        selectedText = await TryGetSelectedTextMethod4_SendInputSafe(originalClipboard);
+        if (!string.IsNullOrWhiteSpace(selectedText))
+        {
+            RestoreClipboardDelayed(originalClipboard);
+            return selectedText;
+        }
+
+        // Method 5: SendInput with extended delays
+        selectedText = await TryGetSelectedTextMethod5_SendInputExtended(originalClipboard);
+        if (!string.IsNullOrWhiteSpace(selectedText))
+        {
+            RestoreClipboardDelayed(originalClipboard);
+            return selectedText;
+        }
+
+        // Method 6: keybd_event with proper timing
+        selectedText = await TryGetSelectedTextMethod6_KeybdEvent(originalClipboard);
+        if (!string.IsNullOrWhiteSpace(selectedText))
+        {
+            RestoreClipboardDelayed(originalClipboard);
+            return selectedText;
+        }
+
+        // Method 7: keybd_event with extended delays
+        selectedText = await TryGetSelectedTextMethod7_KeybdEventLong(originalClipboard);
+        if (!string.IsNullOrWhiteSpace(selectedText))
+        {
+            RestoreClipboardDelayed(originalClipboard);
+            return selectedText;
+        }
+
+        // Method 8: Focus restoration with SendKeys
+        selectedText = await TryGetSelectedTextMethod8_WithFocusRestore(originalClipboard);
+        if (!string.IsNullOrWhiteSpace(selectedText))
+        {
+            RestoreClipboardDelayed(originalClipboard);
+            return selectedText;
+        }
+
+        // Method 9: Multiple progressive attempts with alternating methods
+        selectedText = await TryGetSelectedTextMethod9_ProgressiveRetry(originalClipboard);
+        if (!string.IsNullOrWhiteSpace(selectedText))
+        {
+            RestoreClipboardDelayed(originalClipboard);
+            return selectedText;
+        }
+
+        // Method 10: Last resort - very long delays
+        selectedText = await TryGetSelectedTextMethod10_VeryLongDelays(originalClipboard);
+        if (!string.IsNullOrWhiteSpace(selectedText))
+        {
+            RestoreClipboardDelayed(originalClipboard);
+            return selectedText;
+        }
+
+        // Method 11: SendInput with scan codes
+        selectedText = await TryGetSelectedTextMethod11_SendInputScanCode(originalClipboard);
+        if (!string.IsNullOrWhiteSpace(selectedText))
+        {
+            RestoreClipboardDelayed(originalClipboard);
+            return selectedText;
+        }
+
+        // Method 12: Hybrid approach - SendKeys for Ctrl, keybd_event for C
+        selectedText = await TryGetSelectedTextMethod12_Hybrid(originalClipboard);
+        if (!string.IsNullOrWhiteSpace(selectedText))
+        {
+            RestoreClipboardDelayed(originalClipboard);
+            return selectedText;
+        }
+
+        // Restore original clipboard if no text was selected
+        if (!string.IsNullOrEmpty(originalClipboard))
+        {
+            _clipboardManager.SetClipboardText(originalClipboard, false);
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Release any keys that might be stuck in pressed state
+    /// </summary>
+    private async Task ReleaseStuckKeysAsync()
+    {
+        try
+        {
+            // Check if Ctrl, Shift, or Alt keys are stuck
+            var stuckKeys = new List<int>();
+
+            if (IsKeyPressed(VK_CONTROL) || IsKeyPressed(VK_LCONTROL) || IsKeyPressed(VK_RCONTROL))
+            {
+                stuckKeys.Add(VK_CONTROL);
+                stuckKeys.Add(VK_LCONTROL);
+                stuckKeys.Add(VK_RCONTROL);
+            }
+
+            if (IsKeyPressed(VK_C))
+            {
+                stuckKeys.Add(VK_C);
+            }
+
+            if (IsKeyPressed(VK_SHIFT))
+            {
+                stuckKeys.Add(VK_SHIFT);
+            }
+
+            if (IsKeyPressed(VK_MENU))
+            {
+                stuckKeys.Add(VK_MENU);
+            }
+
+            // Release stuck keys
+            foreach (var key in stuckKeys)
+            {
+                keybd_event((byte)key, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
+                await Task.Delay(10);
+            }
+
+            if (stuckKeys.Count > 0)
+            {
+                await Task.Delay(50); // Extra delay to ensure keys are released
+            }
+        }
+        catch
+        {
+            // Silent fail
+        }
+    }
+
+    /// <summary>
+    /// Check if a key is currently pressed
+    /// </summary>
+    private bool IsKeyPressed(int vKey)
+    {
+        try
+        {
+            short keyState = GetAsyncKeyState(vKey);
+            // Check if the most significant bit is set (key is down)
+            return (keyState & 0x8000) != 0;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private void RestoreClipboardDelayed(string? originalClipboard)
+    {
         if (!string.IsNullOrEmpty(originalClipboard))
         {
             _ = Task.Run(async () =>
             {
-                await Task.Delay(500);
+                await Task.Delay(400);
                 _clipboardManager.SetClipboardText(originalClipboard, false);
             });
         }
-
-        return selectedText;
     }
 
     /// <summary>
-    /// Method 1: Try to get selected text using keybd_event
+    /// Method 1: SendKeys.SendWait - Most reliable for clipboard operations
     /// </summary>
-    private async Task<string?> TryGetSelectedTextWithKeybdEvent(string? originalClipboard, int attempt)
+    private async Task<string?> TryGetSelectedTextMethod1_SendKeys(string? originalClipboard)
     {
         try
         {
-            // Clear clipboard
             _clipboardManager.ClearClipboard();
-            await Task.Delay(50 + (attempt * 20)); // Progressive delay
+            await Task.Delay(50);
 
-            // Ensure window is valid and visible
+            // Release any keys that might be pressed
+            await ReleaseStuckKeysAsync();
+            await Task.Delay(30);
+
+            SendKeys.SendWait("^c");
+            await Task.Delay(250);
+
+            var selectedText = _clipboardManager.GetClipboardText();
+            if (!string.IsNullOrWhiteSpace(selectedText) && selectedText != originalClipboard)
+            {
+                return selectedText;
+            }
+
+            return null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Method 2: SendKeys with longer delays
+    /// </summary>
+    private async Task<string?> TryGetSelectedTextMethod2_SendKeysLongDelay(string? originalClipboard)
+    {
+        try
+        {
+            _clipboardManager.ClearClipboard();
+            await Task.Delay(100);
+
+            await ReleaseStuckKeysAsync();
+            await Task.Delay(50);
+
+            SendKeys.SendWait("^c");
+            await Task.Delay(400);
+
+            var selectedText = _clipboardManager.GetClipboardText();
+            if (!string.IsNullOrWhiteSpace(selectedText) && selectedText != originalClipboard)
+            {
+                return selectedText;
+            }
+
+            return null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Method 3: SendKeys with multiple retries
+    /// </summary>
+    private async Task<string?> TryGetSelectedTextMethod3_SendKeysRetry(string? originalClipboard)
+    {
+        try
+        {
+            for (int attempt = 1; attempt <= 3; attempt++)
+            {
+                _clipboardManager.ClearClipboard();
+                await Task.Delay(50 + (attempt * 25));
+
+                await ReleaseStuckKeysAsync();
+                await Task.Delay(30);
+
+                SendKeys.SendWait("^c");
+                await Task.Delay(200 + (attempt * 100));
+
+                var selectedText = _clipboardManager.GetClipboardText();
+                if (!string.IsNullOrWhiteSpace(selectedText) && selectedText != originalClipboard)
+                {
+                    return selectedText;
+                }
+
+                if (attempt < 3)
+                {
+                    await Task.Delay(100);
+                }
+            }
+
+            return null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Method 4: SendInput with key state checking
+    /// </summary>
+    private async Task<string?> TryGetSelectedTextMethod4_SendInputSafe(string? originalClipboard)
+    {
+        try
+        {
+            _clipboardManager.ClearClipboard();
+            await Task.Delay(50);
+
+            // Ensure no keys are stuck
+            await ReleaseStuckKeysAsync();
+            await Task.Delay(50);
+
+            // Verify keys are released
+            if (IsKeyPressed(VK_CONTROL) || IsKeyPressed(VK_C))
+            {
+                await Task.Delay(100);
+            }
+
+            SendCtrlCWithSendInputSafe();
+            await Task.Delay(300);
+
+            var selectedText = _clipboardManager.GetClipboardText();
+            if (!string.IsNullOrWhiteSpace(selectedText) && selectedText != originalClipboard)
+            {
+                return selectedText;
+            }
+
+            return null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Method 5: SendInput with extended delays between key events
+    /// </summary>
+    private async Task<string?> TryGetSelectedTextMethod5_SendInputExtended(string? originalClipboard)
+    {
+        try
+        {
+            _clipboardManager.ClearClipboard();
+            await Task.Delay(80);
+
+            await ReleaseStuckKeysAsync();
+            await Task.Delay(50);
+
+            SendCtrlCWithSendInputExtended();
+            await Task.Delay(350);
+
+            var selectedText = _clipboardManager.GetClipboardText();
+            if (!string.IsNullOrWhiteSpace(selectedText) && selectedText != originalClipboard)
+            {
+                return selectedText;
+            }
+
+            return null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Method 6: keybd_event with proper timing and delays
+    /// </summary>
+    private async Task<string?> TryGetSelectedTextMethod6_KeybdEvent(string? originalClipboard)
+    {
+        try
+        {
+            _clipboardManager.ClearClipboard();
+            await Task.Delay(60);
+
+            await ReleaseStuckKeysAsync();
+            await Task.Delay(50);
+
+            SendCtrlCWithKeyBdEventSafe();
+            await Task.Delay(300);
+
+            var selectedText = _clipboardManager.GetClipboardText();
+            if (!string.IsNullOrWhiteSpace(selectedText) && selectedText != originalClipboard)
+            {
+                return selectedText;
+            }
+
+            return null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Method 7: keybd_event with very long delays
+    /// </summary>
+    private async Task<string?> TryGetSelectedTextMethod7_KeybdEventLong(string? originalClipboard)
+    {
+        try
+        {
+            _clipboardManager.ClearClipboard();
+            await Task.Delay(100);
+
+            await ReleaseStuckKeysAsync();
+            await Task.Delay(80);
+
+            SendCtrlCWithKeyBdEventLong();
+            await Task.Delay(400);
+
+            var selectedText = _clipboardManager.GetClipboardText();
+            if (!string.IsNullOrWhiteSpace(selectedText) && selectedText != originalClipboard)
+            {
+                return selectedText;
+            }
+
+            return null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Method 8: With focus restoration
+    /// </summary>
+    private async Task<string?> TryGetSelectedTextMethod8_WithFocusRestore(string? originalClipboard)
+    {
+        try
+        {
+            // Check if window is still valid
             if (_lastActiveWindow == IntPtr.Zero || !IsWindow(_lastActiveWindow) || !IsWindowVisible(_lastActiveWindow))
             {
-                _lastActiveWindow = GetForegroundWindow();
+                return null;
             }
 
-            // Enhanced focus restoration with multiple attempts
-            if (_lastActiveWindow != IntPtr.Zero && IsWindow(_lastActiveWindow))
-            {
-                // Use AttachThreadInput for better focus control
-                var foregroundThread = GetWindowThreadProcessId(GetForegroundWindow(), IntPtr.Zero);
-                var targetThread = GetWindowThreadProcessId(_lastActiveWindow, IntPtr.Zero);
-                
-                bool attached = false;
-                if (foregroundThread != targetThread)
-                {
-                    attached = AttachThreadInput(foregroundThread, targetThread, true);
-                }
-
-                // Multiple focus attempts for better reliability
-                for (int focusAttempt = 0; focusAttempt < 2; focusAttempt++)
-                {
-                    SetForegroundWindow(_lastActiveWindow);
-                    await Task.Delay(120 + (attempt * 40) + (focusAttempt * 30)); // Progressive delay
-                    
-                    // Verify focus was set
-                    if (GetForegroundWindow() == _lastActiveWindow)
-                        break;
-                }
-
-                if (attached && foregroundThread != targetThread)
-                {
-                    AttachThreadInput(foregroundThread, targetThread, false);
-                }
-            }
-
-            // Send Ctrl+C using keybd_event
-            SendCtrlC();
-
-            // Wait for clipboard to update with progressive delay (longer for reliability)
-            await Task.Delay(250 + (attempt * 75));
-
-            // Get the copied text
-            var selectedText = _clipboardManager.GetClipboardText();
-
-            // Verify we got new text (not the original)
-            if (!string.IsNullOrWhiteSpace(selectedText) && selectedText != originalClipboard)
-            {
-                return selectedText;
-            }
-
-            return null;
-        }
-        catch
-        {
-            return null;
-        }
-    }
-
-    /// <summary>
-    /// Method 2: Try to get selected text using SendKeys (fallback)
-    /// </summary>
-    private async Task<string?> TryGetSelectedTextWithSendKeys(string? originalClipboard)
-    {
-        try
-        {
-            // Clear clipboard
             _clipboardManager.ClearClipboard();
-            await Task.Delay(100);
+            await Task.Delay(60);
 
-            // Restore focus
-            if (_lastActiveWindow != IntPtr.Zero && IsWindow(_lastActiveWindow))
+            // Check if window is already in foreground
+            var currentForeground = GetForegroundWindow();
+            if (currentForeground != _lastActiveWindow)
             {
+                // Allow our process to set foreground window
+                GetWindowThreadProcessId(_lastActiveWindow, out int processId);
+                if (processId != 0)
+                {
+                    AllowSetForegroundWindow(processId);
+                }
+
+                // Restore focus
                 SetForegroundWindow(_lastActiveWindow);
-                await Task.Delay(150);
+                await Task.Delay(120);
+
+                // Verify focus was set
+                if (GetForegroundWindow() != _lastActiveWindow)
+                {
+                    return null;
+                }
             }
 
-            // Use SendKeys as fallback
+            await ReleaseStuckKeysAsync();
+            await Task.Delay(50);
+
             SendKeys.SendWait("^c");
-            await Task.Delay(300); // Longer delay for SendKeys
+            await Task.Delay(300);
 
             var selectedText = _clipboardManager.GetClipboardText();
-
             if (!string.IsNullOrWhiteSpace(selectedText) && selectedText != originalClipboard)
             {
                 return selectedText;
@@ -215,59 +586,41 @@ public class SelectionManager
     }
 
     /// <summary>
-    /// Method 3: Enhanced focus method with multiple attempts
+    /// Method 9: Progressive retry with alternating methods
     /// </summary>
-    private async Task<string?> TryGetSelectedTextWithEnhancedFocus(string? originalClipboard)
+    private async Task<string?> TryGetSelectedTextMethod9_ProgressiveRetry(string? originalClipboard)
     {
         try
         {
-            // Clear clipboard
-            _clipboardManager.ClearClipboard();
-            await Task.Delay(100);
-
-            // Multiple focus attempts
-            for (int focusAttempt = 0; focusAttempt < 3; focusAttempt++)
+            for (int attempt = 1; attempt <= 4; attempt++)
             {
-                if (_lastActiveWindow != IntPtr.Zero && IsWindow(_lastActiveWindow))
+                _clipboardManager.ClearClipboard();
+                await Task.Delay(60 + (attempt * 30));
+
+                await ReleaseStuckKeysAsync();
+                await Task.Delay(40 + (attempt * 20));
+
+                // Alternate between different methods
+                if (attempt % 2 == 1)
                 {
-                    // Try different focus methods
-                    if (focusAttempt == 0)
-                    {
-                        SetForegroundWindow(_lastActiveWindow);
-                    }
-                    else if (focusAttempt == 1)
-                    {
-                        // Use ShowWindow to ensure visibility
-                        ShowWindow(_lastActiveWindow, 9); // SW_RESTORE
-                        SetForegroundWindow(_lastActiveWindow);
-                    }
-                    else
-                    {
-                        // Force focus with AttachThreadInput
-                        var foregroundThread = GetWindowThreadProcessId(GetForegroundWindow(), IntPtr.Zero);
-                        var targetThread = GetWindowThreadProcessId(_lastActiveWindow, IntPtr.Zero);
-                        
-                        if (foregroundThread != targetThread)
-                        {
-                            AttachThreadInput(foregroundThread, targetThread, true);
-                            SetForegroundWindow(_lastActiveWindow);
-                            await Task.Delay(50);
-                            AttachThreadInput(foregroundThread, targetThread, false);
-                        }
-                    }
+                    SendKeys.SendWait("^c");
+                }
+                else
+                {
+                    SendCtrlCWithSendInputSafe();
+                }
 
-                    await Task.Delay(150);
+                await Task.Delay(250 + (attempt * 75));
 
-                    // Send Ctrl+C
-                    SendCtrlC();
-                    await Task.Delay(350); // Longer delay for enhanced focus method
+                var selectedText = _clipboardManager.GetClipboardText();
+                if (!string.IsNullOrWhiteSpace(selectedText) && selectedText != originalClipboard)
+                {
+                    return selectedText;
+                }
 
-                    var selectedText = _clipboardManager.GetClipboardText();
-
-                    if (!string.IsNullOrWhiteSpace(selectedText) && selectedText != originalClipboard)
-                    {
-                        return selectedText;
-                    }
+                if (attempt < 4)
+                {
+                    await Task.Delay(80);
                 }
             }
 
@@ -279,21 +632,170 @@ public class SelectionManager
         }
     }
 
-    [DllImport("user32.dll")]
-    private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+    /// <summary>
+    /// Method 10: Very long delays for slow applications
+    /// </summary>
+    private async Task<string?> TryGetSelectedTextMethod10_VeryLongDelays(string? originalClipboard)
+    {
+        try
+        {
+            _clipboardManager.ClearClipboard();
+            await Task.Delay(150);
+
+            await ReleaseStuckKeysAsync();
+            await Task.Delay(100);
+
+            SendKeys.SendWait("^c");
+            await Task.Delay(500);
+
+            var selectedText = _clipboardManager.GetClipboardText();
+            if (!string.IsNullOrWhiteSpace(selectedText) && selectedText != originalClipboard)
+            {
+                return selectedText;
+            }
+
+            // Try again with SendInput
+            _clipboardManager.ClearClipboard();
+            await Task.Delay(150);
+
+            await ReleaseStuckKeysAsync();
+            await Task.Delay(100);
+
+            SendCtrlCWithSendInputExtended();
+            await Task.Delay(500);
+
+            selectedText = _clipboardManager.GetClipboardText();
+            if (!string.IsNullOrWhiteSpace(selectedText) && selectedText != originalClipboard)
+            {
+                return selectedText;
+            }
+
+            return null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
 
     /// <summary>
-    /// Inserts text into the last active application, replacing the selected text
+    /// Method 11: SendInput with scan codes
+    /// </summary>
+    private async Task<string?> TryGetSelectedTextMethod11_SendInputScanCode(string? originalClipboard)
+    {
+        try
+        {
+            _clipboardManager.ClearClipboard();
+            await Task.Delay(70);
+
+            await ReleaseStuckKeysAsync();
+            await Task.Delay(50);
+
+            SendCtrlCWithScanCode();
+            await Task.Delay(320);
+
+            var selectedText = _clipboardManager.GetClipboardText();
+            if (!string.IsNullOrWhiteSpace(selectedText) && selectedText != originalClipboard)
+            {
+                return selectedText;
+            }
+
+            return null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Method 12: Hybrid approach - mix different techniques
+    /// </summary>
+    private async Task<string?> TryGetSelectedTextMethod12_Hybrid(string? originalClipboard)
+    {
+        try
+        {
+            _clipboardManager.ClearClipboard();
+            await Task.Delay(80);
+
+            await ReleaseStuckKeysAsync();
+            await Task.Delay(60);
+
+            // Use SendInput for Ctrl down
+            var inputs = new INPUT[1];
+            inputs[0] = new INPUT
+            {
+                type = INPUT_KEYBOARD,
+                u = new INPUTUNION
+                {
+                    ki = new KEYBDINPUT
+                    {
+                        wVk = VK_CONTROL,
+                        wScan = 0,
+                        dwFlags = KEYEVENTF_KEYDOWN,
+                        time = 0,
+                        dwExtraInfo = GetMessageExtraInfo()
+                    }
+                }
+            };
+            SendInput(1, inputs, Marshal.SizeOf(typeof(INPUT)));
+            await Task.Delay(50);
+
+            // Use SendKeys for C
+            SendKeys.SendWait("c");
+            await Task.Delay(50);
+
+            // Release Ctrl with SendInput
+            inputs[0].u.ki.dwFlags = KEYEVENTF_KEYUP;
+            SendInput(1, inputs, Marshal.SizeOf(typeof(INPUT)));
+            await Task.Delay(100);
+
+            await Task.Delay(200);
+
+            var selectedText = _clipboardManager.GetClipboardText();
+            if (!string.IsNullOrWhiteSpace(selectedText) && selectedText != originalClipboard)
+            {
+                return selectedText;
+            }
+
+            return null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Inserts text into the last active application
     /// </summary>
     public async Task<bool> InsertTextAsync(string text)
     {
         try
         {
-            // Restore focus to the original window
-            if (_lastActiveWindow != IntPtr.Zero)
+            // Validate window
+            if (_lastActiveWindow == IntPtr.Zero || !IsWindow(_lastActiveWindow) || !IsWindowVisible(_lastActiveWindow))
             {
+                return false;
+            }
+
+            // Release any stuck keys
+            await ReleaseStuckKeysAsync();
+
+            // Check if window is already in foreground
+            var currentForeground = GetForegroundWindow();
+            if (currentForeground != _lastActiveWindow)
+            {
+                // Allow our process to set foreground window
+                GetWindowThreadProcessId(_lastActiveWindow, out int processId);
+                if (processId != 0)
+                {
+                    AllowSetForegroundWindow(processId);
+                }
+
+                // Restore focus
                 SetForegroundWindow(_lastActiveWindow);
-                await Task.Delay(150);
+                await Task.Delay(100);
             }
 
             // Save current clipboard
@@ -302,13 +804,13 @@ public class SelectionManager
             // Put the new text in clipboard
             _clipboardManager.SetClipboardText(text, false);
 
-            // Wait a bit
-            await Task.Delay(100);
+            // Wait for clipboard to be set
+            await Task.Delay(80);
 
-            // Send Ctrl+V using keybd_event (more reliable than SendKeys)
-            SendCtrlV();
+            // Send Ctrl+V using SendKeys (most reliable)
+            SendKeys.SendWait("^v");
 
-            // Wait a bit
+            // Wait for paste to complete
             await Task.Delay(150);
 
             // Restore original clipboard
@@ -316,7 +818,7 @@ public class SelectionManager
             {
                 _ = Task.Run(async () =>
                 {
-                    await Task.Delay(500);
+                    await Task.Delay(400);
                     _clipboardManager.SetClipboardText(originalClipboard, false);
                 });
             }
@@ -330,77 +832,325 @@ public class SelectionManager
     }
 
     /// <summary>
-    /// Sends Ctrl+C using Windows API with enhanced reliability
+    /// SendInput with safety checks
     /// </summary>
-    private void SendCtrlC()
+    private void SendCtrlCWithSendInputSafe()
     {
         try
         {
+            var inputs = new INPUT[4];
+            var extraInfo = GetMessageExtraInfo();
+
             // Press Ctrl
-            keybd_event(VK_CONTROL, 0, 0, UIntPtr.Zero);
-            Thread.Sleep(20); // Increased delay for better reliability
-            
+            inputs[0] = new INPUT
+            {
+                type = INPUT_KEYBOARD,
+                u = new INPUTUNION
+                {
+                    ki = new KEYBDINPUT
+                    {
+                        wVk = VK_CONTROL,
+                        wScan = 0,
+                        dwFlags = KEYEVENTF_KEYDOWN,
+                        time = 0,
+                        dwExtraInfo = extraInfo
+                    }
+                }
+            };
+
             // Press C
-            keybd_event(VK_C, 0, 0, UIntPtr.Zero);
-            Thread.Sleep(20);
-            
+            inputs[1] = new INPUT
+            {
+                type = INPUT_KEYBOARD,
+                u = new INPUTUNION
+                {
+                    ki = new KEYBDINPUT
+                    {
+                        wVk = VK_C,
+                        wScan = 0,
+                        dwFlags = KEYEVENTF_KEYDOWN,
+                        time = 0,
+                        dwExtraInfo = extraInfo
+                    }
+                }
+            };
+
             // Release C
-            keybd_event(VK_C, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
-            Thread.Sleep(20);
-            
+            inputs[2] = new INPUT
+            {
+                type = INPUT_KEYBOARD,
+                u = new INPUTUNION
+                {
+                    ki = new KEYBDINPUT
+                    {
+                        wVk = VK_C,
+                        wScan = 0,
+                        dwFlags = KEYEVENTF_KEYUP,
+                        time = 0,
+                        dwExtraInfo = extraInfo
+                    }
+                }
+            };
+
             // Release Ctrl
-            keybd_event(VK_CONTROL, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
-            Thread.Sleep(15); // Increased delay after release
+            inputs[3] = new INPUT
+            {
+                type = INPUT_KEYBOARD,
+                u = new INPUTUNION
+                {
+                    ki = new KEYBDINPUT
+                    {
+                        wVk = VK_CONTROL,
+                        wScan = 0,
+                        dwFlags = KEYEVENTF_KEYUP,
+                        time = 0,
+                        dwExtraInfo = extraInfo
+                    }
+                }
+            };
+
+            SendInput(4, inputs, Marshal.SizeOf(typeof(INPUT)));
+            Thread.Sleep(20);
         }
         catch
         {
-            // If keybd_event fails, try SendKeys as fallback
-            try
-            {
-                SendKeys.SendWait("^c");
-            }
-            catch
-            {
-                // Ignore
-            }
+            // Silent fail
         }
     }
 
     /// <summary>
-    /// Sends Ctrl+V using Windows API with enhanced reliability
+    /// SendInput with extended timing
     /// </summary>
-    private void SendCtrlV()
+    private void SendCtrlCWithSendInputExtended()
+    {
+        try
+        {
+            var extraInfo = GetMessageExtraInfo();
+
+            // Press Ctrl
+            var input1 = new INPUT
+            {
+                type = INPUT_KEYBOARD,
+                u = new INPUTUNION
+                {
+                    ki = new KEYBDINPUT
+                    {
+                        wVk = VK_CONTROL,
+                        wScan = 0,
+                        dwFlags = KEYEVENTF_KEYDOWN,
+                        time = 0,
+                        dwExtraInfo = extraInfo
+                    }
+                }
+            };
+            SendInput(1, new[] { input1 }, Marshal.SizeOf(typeof(INPUT)));
+            Thread.Sleep(60);
+
+            // Press C
+            var input2 = new INPUT
+            {
+                type = INPUT_KEYBOARD,
+                u = new INPUTUNION
+                {
+                    ki = new KEYBDINPUT
+                    {
+                        wVk = VK_C,
+                        wScan = 0,
+                        dwFlags = KEYEVENTF_KEYDOWN,
+                        time = 0,
+                        dwExtraInfo = extraInfo
+                    }
+                }
+            };
+            SendInput(1, new[] { input2 }, Marshal.SizeOf(typeof(INPUT)));
+            Thread.Sleep(60);
+
+            // Release C
+            var input3 = new INPUT
+            {
+                type = INPUT_KEYBOARD,
+                u = new INPUTUNION
+                {
+                    ki = new KEYBDINPUT
+                    {
+                        wVk = VK_C,
+                        wScan = 0,
+                        dwFlags = KEYEVENTF_KEYUP,
+                        time = 0,
+                        dwExtraInfo = extraInfo
+                    }
+                }
+            };
+            SendInput(1, new[] { input3 }, Marshal.SizeOf(typeof(INPUT)));
+            Thread.Sleep(60);
+
+            // Release Ctrl
+            var input4 = new INPUT
+            {
+                type = INPUT_KEYBOARD,
+                u = new INPUTUNION
+                {
+                    ki = new KEYBDINPUT
+                    {
+                        wVk = VK_CONTROL,
+                        wScan = 0,
+                        dwFlags = KEYEVENTF_KEYUP,
+                        time = 0,
+                        dwExtraInfo = extraInfo
+                    }
+                }
+            };
+            SendInput(1, new[] { input4 }, Marshal.SizeOf(typeof(INPUT)));
+            Thread.Sleep(20);
+        }
+        catch
+        {
+            // Silent fail
+        }
+    }
+
+    /// <summary>
+    /// keybd_event with safe timing
+    /// </summary>
+    private void SendCtrlCWithKeyBdEventSafe()
     {
         try
         {
             // Press Ctrl
-            keybd_event(VK_CONTROL, 0, 0, UIntPtr.Zero);
-            Thread.Sleep(20); // Increased delay
-            
-            // Press V
-            keybd_event(VK_V, 0, 0, UIntPtr.Zero);
-            Thread.Sleep(20);
-            
-            // Release V
-            keybd_event(VK_V, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
-            Thread.Sleep(20);
-            
+            keybd_event(VK_CONTROL, 0, KEYEVENTF_KEYDOWN, UIntPtr.Zero);
+            Thread.Sleep(50);
+
+            // Press C
+            keybd_event(VK_C, 0, KEYEVENTF_KEYDOWN, UIntPtr.Zero);
+            Thread.Sleep(50);
+
+            // Release C
+            keybd_event(VK_C, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
+            Thread.Sleep(50);
+
             // Release Ctrl
             keybd_event(VK_CONTROL, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
-            Thread.Sleep(15); // Delay after release
+            Thread.Sleep(30);
         }
         catch
         {
-            // If keybd_event fails, try SendKeys as fallback
-            try
-            {
-                SendKeys.SendWait("^v");
-            }
-            catch
-            {
-                // Ignore
-            }
+            // Silent fail
         }
     }
 
+    /// <summary>
+    /// keybd_event with long delays
+    /// </summary>
+    private void SendCtrlCWithKeyBdEventLong()
+    {
+        try
+        {
+            // Press Ctrl
+            keybd_event(VK_CONTROL, 0, KEYEVENTF_KEYDOWN, UIntPtr.Zero);
+            Thread.Sleep(80);
+
+            // Press C
+            keybd_event(VK_C, 0, KEYEVENTF_KEYDOWN, UIntPtr.Zero);
+            Thread.Sleep(80);
+
+            // Release C
+            keybd_event(VK_C, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
+            Thread.Sleep(80);
+
+            // Release Ctrl
+            keybd_event(VK_CONTROL, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
+            Thread.Sleep(50);
+        }
+        catch
+        {
+            // Silent fail
+        }
+    }
+
+    /// <summary>
+    /// SendInput with scan codes
+    /// </summary>
+    private void SendCtrlCWithScanCode()
+    {
+        try
+        {
+            var inputs = new INPUT[4];
+            var extraInfo = GetMessageExtraInfo();
+
+            // Press Ctrl with scan code
+            inputs[0] = new INPUT
+            {
+                type = INPUT_KEYBOARD,
+                u = new INPUTUNION
+                {
+                    ki = new KEYBDINPUT
+                    {
+                        wVk = 0,
+                        wScan = 0x1D, // Ctrl scan code
+                        dwFlags = KEYEVENTF_SCANCODE,
+                        time = 0,
+                        dwExtraInfo = extraInfo
+                    }
+                }
+            };
+
+            // Press C with scan code
+            inputs[1] = new INPUT
+            {
+                type = INPUT_KEYBOARD,
+                u = new INPUTUNION
+                {
+                    ki = new KEYBDINPUT
+                    {
+                        wVk = 0,
+                        wScan = 0x2E, // C scan code
+                        dwFlags = KEYEVENTF_SCANCODE,
+                        time = 0,
+                        dwExtraInfo = extraInfo
+                    }
+                }
+            };
+
+            // Release C with scan code
+            inputs[2] = new INPUT
+            {
+                type = INPUT_KEYBOARD,
+                u = new INPUTUNION
+                {
+                    ki = new KEYBDINPUT
+                    {
+                        wVk = 0,
+                        wScan = 0x2E, // C scan code
+                        dwFlags = KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP,
+                        time = 0,
+                        dwExtraInfo = extraInfo
+                    }
+                }
+            };
+
+            // Release Ctrl with scan code
+            inputs[3] = new INPUT
+            {
+                type = INPUT_KEYBOARD,
+                u = new INPUTUNION
+                {
+                    ki = new KEYBDINPUT
+                    {
+                        wVk = 0,
+                        wScan = 0x1D, // Ctrl scan code
+                        dwFlags = KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP,
+                        time = 0,
+                        dwExtraInfo = extraInfo
+                    }
+                }
+            };
+
+            SendInput(4, inputs, Marshal.SizeOf(typeof(INPUT)));
+            Thread.Sleep(20);
+        }
+        catch
+        {
+            // Silent fail
+        }
+    }
 }
