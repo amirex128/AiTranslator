@@ -42,9 +42,11 @@ public class TranslationService : ITranslationService
             PooledConnectionIdleTimeout = TimeSpan.FromMinutes(1)
         };
         
+        // Timeout is now configured per endpoint, so use a very large timeout for HttpClient
+        // Individual endpoint timeouts are handled in TranslationApiProvider
         var httpClient = new HttpClient(socketsHandler)
         {
-            Timeout = TimeSpan.FromMinutes(_configService.Config.Api.TimeoutMinutes)
+            Timeout = TimeSpan.FromHours(24) // Very large timeout, actual timeout is per endpoint
         };
         
         _apiProvider = new TranslationApiProvider(httpClient, loggingService);

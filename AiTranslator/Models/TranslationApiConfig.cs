@@ -55,4 +55,32 @@ public class TranslationApiConfig
                 yield return endpoint.Url;
         }
     }
+
+    /// <summary>
+    /// Gets endpoint info with timeout for fallback mechanism
+    /// </summary>
+    public IEnumerable<EndpointInfo> GetEndpointsInfoWithFallback()
+    {
+        if (Endpoints == null || Endpoints.Count == 0)
+            yield break;
+
+        // Start from default endpoint
+        var startIndex = Math.Max(0, Math.Min(DefaultEndpointIndex, Endpoints.Count - 1));
+        
+        // Yield default endpoint first
+        for (int i = startIndex; i < Endpoints.Count; i++)
+        {
+            var endpoint = Endpoints[i];
+            if (endpoint != null && !string.IsNullOrWhiteSpace(endpoint.Url))
+                yield return endpoint;
+        }
+
+        // Then yield remaining endpoints before default
+        for (int i = 0; i < startIndex; i++)
+        {
+            var endpoint = Endpoints[i];
+            if (endpoint != null && !string.IsNullOrWhiteSpace(endpoint.Url))
+                yield return endpoint;
+        }
+    }
 }

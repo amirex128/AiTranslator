@@ -1,4 +1,5 @@
 using System.Net.Http.Json;
+using System.Net.Sockets;
 using System.Text.Json;
 using AiTranslator.Models;
 
@@ -37,7 +38,7 @@ public class TranslationApiProvider
             };
         }
 
-        var endpoints = config.GetEndpointsWithFallback().ToList();
+        var endpoints = config.GetEndpointsInfoWithFallback().ToList();
         
         if (endpoints.Count == 0)
         {
@@ -53,20 +54,20 @@ public class TranslationApiProvider
         // Try each endpoint in order
         for (int i = 0; i < endpoints.Count; i++)
         {
-            var endpoint = endpoints[i];
+            var endpointInfo = endpoints[i];
             var isLastEndpoint = i == endpoints.Count - 1;
 
             try
             {
                 _loggingService.LogInformation(
-                    $"{operationType} - Attempting endpoint {i + 1}/{endpoints.Count}: {endpoint}");
+                    $"{operationType} - Attempting endpoint {i + 1}/{endpoints.Count}: {endpointInfo.Name} ({endpointInfo.Url}) [Timeout: {endpointInfo.TimeoutSeconds}s]");
 
-                var response = await CallApiAsync(endpoint, text, cancellationToken, returnFullJson);
+                var response = await CallApiAsync(endpointInfo, text, cancellationToken, returnFullJson);
 
                 if (response.Success)
                 {
                     _loggingService.LogInformation(
-                        $"{operationType} - Success with endpoint {i + 1}/{endpoints.Count}");
+                        $"{operationType} - Success with endpoint {i + 1}/{endpoints.Count}: {endpointInfo.Name}");
                     return response;
                 }
 
@@ -77,22 +78,74 @@ public class TranslationApiProvider
                 }
 
                 _loggingService.LogWarning(
-                    $"{operationType} - Endpoint {i + 1}/{endpoints.Count} failed: {response.Error}. Trying next endpoint...");
+                    $"{operationType} - Endpoint {i + 1}/{endpoints.Count} ({endpointInfo.Name}) failed: {response.Error}. Trying next endpoint...");
             }
             catch (OperationCanceledException)
             {
-                _loggingService.LogInformation($"{operationType} was cancelled");
-                return new TranslationResponse
+                // Check if it was cancelled by user or timeout
+                if (cancellationToken.IsCancellationRequested)
                 {
-                    Success = false,
-                    Error = "Operation was cancelled"
-                };
+                    _loggingService.LogInformation($"{operationType} was cancelled by user");
+                    return new TranslationResponse
+                    {
+                        Success = false,
+                        Error = "Operation was cancelled"
+                    };
+                }
+                
+                // Timeout occurred - try next endpoint
+                if (isLastEndpoint)
+                {
+                    _loggingService.LogError($"{operationType} - All endpoints timed out. Last endpoint: {endpointInfo.Name}");
+                    return new TranslationResponse
+                    {
+                        Success = false,
+                        Error = $"All endpoints timed out. Last endpoint: {endpointInfo.Name} (timeout: {endpointInfo.TimeoutSeconds}s)"
+                    };
+                }
+                
+                _loggingService.LogWarning(
+                    $"{operationType} - Endpoint {i + 1}/{endpoints.Count} ({endpointInfo.Name}) timed out after {endpointInfo.TimeoutSeconds}s. Trying next endpoint...");
+            }
+            catch (HttpRequestException ex)
+            {
+                // Network errors - try next endpoint
+                lastException = ex;
+                if (isLastEndpoint)
+                {
+                    _loggingService.LogError($"{operationType} - All endpoints failed. Last error: {ex.Message}");
+                    return new TranslationResponse
+                    {
+                        Success = false,
+                        Error = $"All endpoints failed. Last error: {ex.Message}"
+                    };
+                }
+                
+                _loggingService.LogWarning(
+                    $"{operationType} - Endpoint {i + 1}/{endpoints.Count} ({endpointInfo.Name}) network error: {ex.Message}. Trying next endpoint...");
+            }
+            catch (SocketException ex)
+            {
+                // Socket errors - try next endpoint
+                lastException = ex;
+                if (isLastEndpoint)
+                {
+                    _loggingService.LogError($"{operationType} - All endpoints failed. Last error: {ex.Message}");
+                    return new TranslationResponse
+                    {
+                        Success = false,
+                        Error = $"All endpoints failed. Last error: {ex.Message}"
+                    };
+                }
+                
+                _loggingService.LogWarning(
+                    $"{operationType} - Endpoint {i + 1}/{endpoints.Count} ({endpointInfo.Name}) connection error: {ex.Message}. Trying next endpoint...");
             }
             catch (Exception ex)
             {
                 lastException = ex;
                 _loggingService.LogError(
-                    $"{operationType} - Endpoint {i + 1}/{endpoints.Count} error: {ex.Message}", ex);
+                    $"{operationType} - Endpoint {i + 1}/{endpoints.Count} ({endpointInfo.Name}) error: {ex.Message}", ex);
 
                 // If this is the last endpoint, return the error
                 if (isLastEndpoint)
@@ -105,7 +158,7 @@ public class TranslationApiProvider
                 }
 
                 _loggingService.LogWarning(
-                    $"{operationType} - Endpoint {i + 1}/{endpoints.Count} failed. Trying next endpoint...");
+                    $"{operationType} - Endpoint {i + 1}/{endpoints.Count} ({endpointInfo.Name}) failed. Trying next endpoint...");
             }
         }
 
@@ -120,16 +173,21 @@ public class TranslationApiProvider
     }
 
     /// <summary>
-    /// Calls a single API endpoint
+    /// Calls a single API endpoint with specific timeout
     /// </summary>
     private async Task<TranslationResponse> CallApiAsync(
-        string endpoint,
+        EndpointInfo endpointInfo,
         string text,
         CancellationToken cancellationToken,
         bool returnFullJson = false)
     {
         var request = new TranslationRequest { Question = text };
-        var response = await _httpClient.PostAsJsonAsync(endpoint, request, cancellationToken);
+        
+        // Create a timeout cancellation token for this specific endpoint
+        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeoutCts.CancelAfter(TimeSpan.FromSeconds(endpointInfo.TimeoutSeconds));
+        
+        var response = await _httpClient.PostAsJsonAsync(endpointInfo.Url, request, timeoutCts.Token);
 
         if (!response.IsSuccessStatusCode)
         {
@@ -140,7 +198,7 @@ public class TranslationApiProvider
             };
         }
 
-        var content = await response.Content.ReadAsStringAsync(cancellationToken);
+        var content = await response.Content.ReadAsStringAsync(timeoutCts.Token);
 
         // If returnFullJson is true (for Grammar Learner), return the full JSON
         if (returnFullJson)

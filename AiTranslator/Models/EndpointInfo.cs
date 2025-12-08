@@ -1,7 +1,7 @@
 namespace AiTranslator.Models;
 
 /// <summary>
-/// Represents an API endpoint with a name and URL
+/// Represents an API endpoint with a name, URL, and timeout
 /// </summary>
 public class EndpointInfo
 {
@@ -14,6 +14,11 @@ public class EndpointInfo
     /// API endpoint URL
     /// </summary>
     public string Url { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Timeout in seconds for this endpoint (default: 30 seconds)
+    /// </summary>
+    public int TimeoutSeconds { get; set; } = 30;
 
     /// <summary>
     /// Checks if the endpoint is valid (has both name and URL)

@@ -11,6 +11,7 @@ public class TranslationApiConfigControl
     public ComboBox DefaultEndpointComboBox { get; }
     public TextBox[] EndpointNameTextBoxes { get; }
     public TextBox[] EndpointUrlTextBoxes { get; }
+    public NumericUpDown[] EndpointTimeoutNumericUpDowns { get; }
     public Label[] EndpointLabels { get; }
 
     private readonly TranslationApiConfig _config;
@@ -25,6 +26,7 @@ public class TranslationApiConfigControl
         _config = config;
         EndpointNameTextBoxes = new TextBox[4];
         EndpointUrlTextBoxes = new TextBox[4];
+        EndpointTimeoutNumericUpDowns = new NumericUpDown[4];
         EndpointLabels = new Label[4];
 
         int y = startY;
@@ -58,7 +60,7 @@ public class TranslationApiConfigControl
         parentPanel.Controls.Add(DefaultEndpointComboBox);
         y += 35;
 
-        // 4 Endpoint rows (Name + URL)
+        // 4 Endpoint rows (Name + URL + Timeout)
         for (int i = 0; i < 4; i++)
         {
             EndpointLabels[i] = new Label
@@ -84,9 +86,30 @@ public class TranslationApiConfigControl
                 Size = new Size(300, 20)
             };
             
+            // Timeout Label
+            var timeoutLabel = new Label
+            {
+                Text = "Timeout (s):",
+                Location = new Point(560, y),
+                Size = new Size(70, 20)
+            };
+            
+            // Timeout NumericUpDown
+            EndpointTimeoutNumericUpDowns[i] = new NumericUpDown
+            {
+                Location = new Point(635, y),
+                Size = new Size(60, 20),
+                Minimum = 1,
+                Maximum = 600,
+                Value = 30,
+                DecimalPlaces = 0
+            };
+            
             parentPanel.Controls.Add(EndpointLabels[i]);
             parentPanel.Controls.Add(EndpointNameTextBoxes[i]);
             parentPanel.Controls.Add(EndpointUrlTextBoxes[i]);
+            parentPanel.Controls.Add(timeoutLabel);
+            parentPanel.Controls.Add(EndpointTimeoutNumericUpDowns[i]);
             y += 30;
         }
     }
@@ -187,11 +210,15 @@ public class TranslationApiConfigControl
                 {
                     EndpointNameTextBoxes[i].Text = _config.Endpoints[i].Name ?? string.Empty;
                     EndpointUrlTextBoxes[i].Text = _config.Endpoints[i].Url ?? string.Empty;
+                    EndpointTimeoutNumericUpDowns[i].Value = _config.Endpoints[i].TimeoutSeconds > 0 
+                        ? _config.Endpoints[i].TimeoutSeconds 
+                        : 30;
                 }
                 else
                 {
                     EndpointNameTextBoxes[i].Text = string.Empty;
                     EndpointUrlTextBoxes[i].Text = string.Empty;
+                    EndpointTimeoutNumericUpDowns[i].Value = 30;
                 }
             }
 
@@ -228,6 +255,7 @@ public class TranslationApiConfigControl
         {
             var name = EndpointNameTextBoxes[i].Text.Trim();
             var url = EndpointUrlTextBoxes[i].Text.Trim();
+            var timeout = (int)EndpointTimeoutNumericUpDowns[i].Value;
             
             // If name is empty, use default name
             if (string.IsNullOrWhiteSpace(name))
@@ -238,7 +266,8 @@ public class TranslationApiConfigControl
             _config.Endpoints.Add(new EndpointInfo
             {
                 Name = name,
-                Url = url
+                Url = url,
+                TimeoutSeconds = timeout > 0 ? timeout : 30
             });
         }
 

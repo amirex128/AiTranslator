@@ -26,7 +26,6 @@ public class SettingsForm : Form
     private NumericUpDown grammarLearnerFontSizeNumeric = null!;
     
     // Advanced Tab
-    private NumericUpDown timeoutMinutesNumeric = null!;
     private NumericUpDown retryCountNumeric = null!;
     private ComboBox logLevelComboBox = null!;
     private CheckBox enableLoggingCheckBox = null!;
@@ -469,24 +468,8 @@ public class SettingsForm : Form
         panel.Controls.Add(apiSectionLabel);
         y += 30;
 
-        // API Timeout
-        var timeoutLabel = new Label
-        {
-            Text = "API Timeout (minutes):",
-            Location = new Point(10, y),
-            Size = new Size(200, 20)
-        };
-        timeoutMinutesNumeric = new NumericUpDown
-        {
-            Location = new Point(220, y),
-            Size = new Size(100, 20),
-            Minimum = 1,
-            Maximum = 30,
-            Value = 5
-        };
-        panel.Controls.Add(timeoutLabel);
-        panel.Controls.Add(timeoutMinutesNumeric);
-        y += 40;
+        // Note: Timeout is now configured per endpoint in API Configuration tab
+        y += 10;
 
         // Retry Count
         var retryLabel = new Label
@@ -645,7 +628,6 @@ public class SettingsForm : Form
         OnTtsProviderChanged(null, EventArgs.Empty); // Update enabled state
 
         // Advanced - API Settings
-        timeoutMinutesNumeric.Value = config.Api.TimeoutMinutes;
         retryCountNumeric.Value = config.Api.RetryCount;
         
         // Advanced - Logging Settings
@@ -684,7 +666,6 @@ public class SettingsForm : Form
         config.TtsSettings.CacheExpirationDays = (int)cacheExpirationDaysNumeric.Value;
 
         // Advanced - API Settings
-        config.Api.TimeoutMinutes = (int)timeoutMinutesNumeric.Value;
         config.Api.RetryCount = (int)retryCountNumeric.Value;
         
         // Advanced - Logging Settings
