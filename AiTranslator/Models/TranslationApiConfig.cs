@@ -6,9 +6,9 @@ namespace AiTranslator.Models;
 public class TranslationApiConfig
 {
     /// <summary>
-    /// List of API endpoints (up to 4)
+    /// List of API endpoints (up to 4) with names
     /// </summary>
-    public List<string> Endpoints { get; set; } = new();
+    public List<EndpointInfo> Endpoints { get; set; } = new();
 
     /// <summary>
     /// Index of the default/primary endpoint (0-3)
@@ -24,7 +24,8 @@ public class TranslationApiConfig
             return null;
 
         var index = Math.Max(0, Math.Min(DefaultEndpointIndex, Endpoints.Count - 1));
-        return Endpoints[index];
+        var endpoint = Endpoints[index];
+        return endpoint?.Url;
     }
 
     /// <summary>
@@ -41,15 +42,17 @@ public class TranslationApiConfig
         // Yield default endpoint first
         for (int i = startIndex; i < Endpoints.Count; i++)
         {
-            if (!string.IsNullOrWhiteSpace(Endpoints[i]))
-                yield return Endpoints[i];
+            var endpoint = Endpoints[i];
+            if (endpoint != null && !string.IsNullOrWhiteSpace(endpoint.Url))
+                yield return endpoint.Url;
         }
 
         // Then yield remaining endpoints before default
         for (int i = 0; i < startIndex; i++)
         {
-            if (!string.IsNullOrWhiteSpace(Endpoints[i]))
-                yield return Endpoints[i];
+            var endpoint = Endpoints[i];
+            if (endpoint != null && !string.IsNullOrWhiteSpace(endpoint.Url))
+                yield return endpoint.Url;
         }
     }
 }

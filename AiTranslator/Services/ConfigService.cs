@@ -25,13 +25,23 @@ public class ConfigService : IConfigService
         {
             if (File.Exists(_configFilePath))
             {
-                var configuration = new ConfigurationBuilder()
-                    .SetBasePath(AppDomain.CurrentDomain.BaseDirectory)
-                    .AddJsonFile("appsettings.json", optional: false, reloadOnChange: false)
-                    .Build();
+                var json = File.ReadAllText(_configFilePath);
+                
+                // Try to deserialize with migration support
+                var options = new JsonSerializerOptions
+                {
+                    PropertyNameCaseInsensitive = true,
+                    PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+                };
 
-                _config = new AppConfig();
-                configuration.Bind(_config);
+                // First, try to parse as dynamic to check structure
+                using (var doc = JsonDocument.Parse(json))
+                {
+                    _config = JsonSerializer.Deserialize<AppConfig>(json, options) ?? new AppConfig();
+                    
+                    // Migrate old format (List<string>) to new format (List<EndpointInfo>)
+                    MigrateEndpointsIfNeeded(_config);
+                }
             }
             else
             {
@@ -45,6 +55,86 @@ public class ConfigService : IConfigService
             // If config fails to load, use defaults
             _config = new AppConfig();
             Console.WriteLine($"Error loading configuration: {ex.Message}");
+        }
+    }
+
+    private void MigrateEndpointsIfNeeded(AppConfig config)
+    {
+        try
+        {
+            var json = File.ReadAllText(_configFilePath);
+            var needsSave = false;
+            
+            // Check if the JSON contains old format (array of strings)
+            if (json.Contains("\"Endpoints\": [") && json.Contains("\"http://"))
+            {
+                // Try to detect old format by checking if endpoints are strings
+                using (var doc = JsonDocument.Parse(json))
+                {
+                    if (doc.RootElement.TryGetProperty("apiEndpoints", out var apiEndpoints))
+                    {
+                        var configs = new[]
+                        {
+                            ("englishToPersian", config.ApiEndpoints.EnglishToPersian),
+                            ("persianToEnglish", config.ApiEndpoints.PersianToEnglish),
+                            ("grammarFix", config.ApiEndpoints.GrammarFix),
+                            ("grammarLearner", config.ApiEndpoints.GrammarLearner)
+                        };
+
+                        foreach (var (key, apiConfig) in configs)
+                        {
+                            if (apiEndpoints.TryGetProperty(key, out var endpointConfig))
+                            {
+                                if (endpointConfig.TryGetProperty("endpoints", out var endpointsArray))
+                                {
+                                    // Check if it's an array of strings (old format)
+                                    if (endpointsArray.ValueKind == System.Text.Json.JsonValueKind.Array && 
+                                        endpointsArray.GetArrayLength() > 0)
+                                    {
+                                        var firstElement = endpointsArray[0];
+                                        if (firstElement.ValueKind == System.Text.Json.JsonValueKind.String)
+                                        {
+                                            // Migrate from List<string> to List<EndpointInfo>
+                                            apiConfig.Endpoints.Clear();
+                                            
+                                            for (int i = 0; i < endpointsArray.GetArrayLength() && i < 4; i++)
+                                            {
+                                                var url = endpointsArray[i].GetString() ?? string.Empty;
+                                                apiConfig.Endpoints.Add(new EndpointInfo
+                                                {
+                                                    Name = $"API {i + 1}",
+                                                    Url = url
+                                                });
+                                            }
+                                            
+                                            // Ensure we have 4 endpoints
+                                            while (apiConfig.Endpoints.Count < 4)
+                                            {
+                                                apiConfig.Endpoints.Add(new EndpointInfo
+                                                {
+                                                    Name = $"API {apiConfig.Endpoints.Count + 1}",
+                                                    Url = string.Empty
+                                                });
+                                            }
+                                            
+                                            needsSave = true;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (needsSave)
+            {
+                SaveConfiguration();
+            }
+        }
+        catch
+        {
+            // If migration fails, continue with current config
         }
     }
 

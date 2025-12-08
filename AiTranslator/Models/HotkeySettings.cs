@@ -7,8 +7,5 @@ public class HotkeySettings
     public HotkeyConfig TranslateGrammarFix { get; set; } = new() { Key = "F3", Ctrl = true, Alt = true };
     public HotkeyConfig ReadPersian { get; set; } = new() { Key = "F7", Ctrl = true, Alt = true };
     public HotkeyConfig ReadEnglish { get; set; } = new() { Key = "F8", Ctrl = true, Alt = true };
-    public HotkeyConfig AutoDetectTranslate { get; set; } = new() { Key = "F9", Ctrl = true, Alt = true };
-    public HotkeyConfig AutoDetectRead { get; set; } = new() { Key = "F10", Ctrl = true, Alt = true };
-    public HotkeyConfig UndoClipboard { get; set; } = new() { Key = "Z", Ctrl = true, Alt = true, Shift = true };
 }
 

@@ -34,13 +34,6 @@ The application supports 11 customizable global hotkeys:
    - Read Persian: Ctrl+Alt+F7
    - Read English: Ctrl+Alt+F8
 
-4. **Auto-Detect** (2 hotkeys):
-   - Auto-detect translate: Ctrl+Alt+F9
-   - Auto-detect read: Ctrl+Alt+F10
-
-5. **Undo**:
-   - Undo clipboard: Ctrl+Alt+Shift+Z
-
 ### System Integration
 - **System Tray**: Minimize to system tray instead of closing
 - **Auto-start**: Optional startup with Windows
@@ -96,7 +89,7 @@ TTS endpoints can be configured when available.
 
 ### Quick Translation (Popup)
 1. Copy text to clipboard
-2. Press the appropriate hotkey (e.g., Ctrl+Alt+F9 for auto-detect)
+2. Press the appropriate hotkey for the desired translation type
 3. A popup window appears with the translation
 4. The popup auto-closes after 10 seconds (configurable)
 

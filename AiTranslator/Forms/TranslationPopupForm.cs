@@ -1074,7 +1074,7 @@ public class TranslationPopupForm : Form
 
         try
         {
-            _clipboardManager.SetClipboardText(text, false);
+            _clipboardManager.SetClipboardText(text);
 
             // Visual feedback
             var originalColor = resultBox.BackColor;

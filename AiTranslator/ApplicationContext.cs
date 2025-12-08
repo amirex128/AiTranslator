@@ -105,23 +105,6 @@ public class ApplicationContext : System.Windows.Forms.ApplicationContext
                 () => _hotkeyActions.ReadClipboardText(Language.English)
             );
 
-            // Auto-detect
-            _hotkeyManager.RegisterHotkey(
-                hotkeys.AutoDetectTranslate,
-                () => _hotkeyActions.AutoDetectAndTranslate()
-            );
-
-            _hotkeyManager.RegisterHotkey(
-                hotkeys.AutoDetectRead,
-                () => _hotkeyActions.AutoDetectAndRead()
-            );
-
-            // Undo clipboard
-            _hotkeyManager.RegisterHotkey(
-                hotkeys.UndoClipboard,
-                () => _hotkeyActions.UndoClipboard()
-            );
-
             _loggingService.LogInformation("All hotkeys registered successfully");
         }
         catch (Exception ex)

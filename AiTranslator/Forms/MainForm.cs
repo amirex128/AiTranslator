@@ -400,7 +400,7 @@ public partial class MainForm : Form
         var textBox = resultTabControl.SelectedTab.Controls.OfType<TextBox>().FirstOrDefault();
         if (textBox != null && !string.IsNullOrEmpty(textBox.Text))
         {
-            _clipboardManager.SetClipboardText(textBox.Text, false);
+            _clipboardManager.SetClipboardText(textBox.Text);
             UpdateStatus("Result copied to clipboard");
         }
     }
@@ -852,7 +852,7 @@ public partial class MainForm : Form
     {
         try
         {
-            _clipboardManager.SetClipboardText(text, false);
+            _clipboardManager.SetClipboardText(text);
             
             // Visual feedback
             var originalColor = resultBox.BackColor;

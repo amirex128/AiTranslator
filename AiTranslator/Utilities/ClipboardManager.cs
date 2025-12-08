@@ -2,8 +2,6 @@ namespace AiTranslator.Utilities;
 
 public class ClipboardManager
 {
-    private string? _previousClipboardContent;
-
     public string? GetClipboardText()
     {
         try
@@ -20,42 +18,16 @@ public class ClipboardManager
         return null;
     }
 
-    public void SetClipboardText(string text, bool saveHistory = true)
+    public void SetClipboardText(string text)
     {
         try
         {
-            if (saveHistory)
-            {
-                _previousClipboardContent = GetClipboardText();
-            }
-            
             Clipboard.SetText(text);
         }
         catch (Exception)
         {
             // Clipboard access can fail for various reasons
         }
-    }
-
-    public void UndoClipboard()
-    {
-        if (!string.IsNullOrEmpty(_previousClipboardContent))
-        {
-            try
-            {
-                Clipboard.SetText(_previousClipboardContent);
-                _previousClipboardContent = null;
-            }
-            catch (Exception)
-            {
-                // Clipboard access can fail for various reasons
-            }
-        }
-    }
-
-    public bool HasPreviousContent()
-    {
-        return !string.IsNullOrEmpty(_previousClipboardContent);
     }
 
     public void ClearClipboard()

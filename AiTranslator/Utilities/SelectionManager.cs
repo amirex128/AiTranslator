@@ -216,7 +216,7 @@ public class SelectionManager
         // Restore original clipboard if no text was selected
         if (!string.IsNullOrEmpty(originalClipboard))
         {
-            _clipboardManager.SetClipboardText(originalClipboard, false);
+            _clipboardManager.SetClipboardText(originalClipboard);
         }
 
         return null;
@@ -296,7 +296,7 @@ public class SelectionManager
             _ = Task.Run(async () =>
             {
                 await Task.Delay(400);
-                _clipboardManager.SetClipboardText(originalClipboard, false);
+                _clipboardManager.SetClipboardText(originalClipboard);
             });
         }
     }
@@ -802,7 +802,7 @@ public class SelectionManager
             var originalClipboard = _clipboardManager.GetClipboardText();
 
             // Put the new text in clipboard
-            _clipboardManager.SetClipboardText(text, false);
+            _clipboardManager.SetClipboardText(text);
 
             // Wait for clipboard to be set
             await Task.Delay(80);
@@ -819,7 +819,7 @@ public class SelectionManager
                 _ = Task.Run(async () =>
                 {
                     await Task.Delay(400);
-                    _clipboardManager.SetClipboardText(originalClipboard, false);
+                    _clipboardManager.SetClipboardText(originalClipboard);
                 });
             }
 

@@ -43,9 +43,6 @@ public class SettingsForm : Form
     private HotkeyConfigControl translateGrammarFixControl = null!;
     private HotkeyConfigControl readPersianControl = null!;
     private HotkeyConfigControl readEnglishControl = null!;
-    private HotkeyConfigControl autoDetectTranslateControl = null!;
-    private HotkeyConfigControl autoDetectReadControl = null!;
-    private HotkeyConfigControl undoClipboardControl = null!;
     
     private Button saveButton = null!;
     private Button cancelButton = null!;
@@ -611,31 +608,6 @@ public class SettingsForm : Form
             config.Hotkeys.ReadEnglish,
             y,
             panel);
-        y += 70;
-
-        // Auto-detect and Translate
-        autoDetectTranslateControl = new HotkeyConfigControl(
-            "Auto-detect and Translate (Popup)",
-            config.Hotkeys.AutoDetectTranslate,
-            y,
-            panel);
-        y += 70;
-
-        // Auto-detect and Read
-        autoDetectReadControl = new HotkeyConfigControl(
-            "Auto-detect and Read",
-            config.Hotkeys.AutoDetectRead,
-            y,
-            panel);
-        y += 70;
-
-        // Undo Clipboard
-        undoClipboardControl = new HotkeyConfigControl(
-            "Undo Clipboard Replace",
-            config.Hotkeys.UndoClipboard,
-            y,
-            panel);
-
         tab.Controls.Add(panel);
         return tab;
     }
@@ -725,9 +697,6 @@ public class SettingsForm : Form
         translateGrammarFixControl.SaveToConfig(config.Hotkeys.TranslateGrammarFix);
         readPersianControl.SaveToConfig(config.Hotkeys.ReadPersian);
         readEnglishControl.SaveToConfig(config.Hotkeys.ReadEnglish);
-        autoDetectTranslateControl.SaveToConfig(config.Hotkeys.AutoDetectTranslate);
-        autoDetectReadControl.SaveToConfig(config.Hotkeys.AutoDetectRead);
-        undoClipboardControl.SaveToConfig(config.Hotkeys.UndoClipboard);
 
         try
         {
