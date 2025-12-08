@@ -46,6 +46,7 @@ static class Program
             
             var hotkeyManager = new HotkeyManager();
             var clipboardManager = new ClipboardManager();
+            var selectionManager = new SelectionManager(clipboardManager);
             var notificationService = new NotificationService(configService);
             
             var hotkeyActions = new HotkeyActions(
@@ -55,7 +56,8 @@ static class Program
                 configService,
                 loggingService,
                 notificationService,
-                clipboardManager
+                clipboardManager,
+                selectionManager
             );
 
             var mainForm = new MainForm(

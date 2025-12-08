@@ -13,6 +13,7 @@ public class HotkeyActions
     private readonly ILoggingService _loggingService;
     private readonly INotificationService _notificationService;
     private readonly ClipboardManager _clipboardManager;
+    private readonly SelectionManager _selectionManager;
 
     public HotkeyActions(
         ITranslationService translationService,
@@ -21,7 +22,8 @@ public class HotkeyActions
         IConfigService configService,
         ILoggingService loggingService,
         INotificationService notificationService,
-        ClipboardManager clipboardManager)
+        ClipboardManager clipboardManager,
+        SelectionManager selectionManager)
     {
         _translationService = translationService;
         _ttsService = ttsService;
@@ -30,6 +32,7 @@ public class HotkeyActions
         _loggingService = loggingService;
         _notificationService = notificationService;
         _clipboardManager = clipboardManager;
+        _selectionManager = selectionManager;
     }
 
     public void ShowPopupTranslation(TranslationType type)
@@ -68,13 +71,21 @@ public class HotkeyActions
         
         try
         {
-            var clipboardText = _clipboardManager.GetClipboardText();
+            // First, try to get selected text
+            var selectedText = await _selectionManager.GetSelectedTextAsync();
             
-            if (string.IsNullOrWhiteSpace(clipboardText))
+            // If no text selected, fall back to clipboard
+            var textToTranslate = !string.IsNullOrWhiteSpace(selectedText) 
+                ? selectedText 
+                : _clipboardManager.GetClipboardText();
+            
+            if (string.IsNullOrWhiteSpace(textToTranslate))
             {
-                ShowNotification("Clipboard is empty", "Cannot translate empty clipboard");
+                ShowNotification("No text found", "Please select text or copy to clipboard");
                 return;
             }
+
+            var hasSelectedText = !string.IsNullOrWhiteSpace(selectedText);
 
             loadingPopup = new LoadingPopupForm();
             loadingPopup.ShowLoading("Translating...");
@@ -84,13 +95,13 @@ public class HotkeyActions
             switch (type)
             {
                 case TranslationType.PersianToEnglish:
-                    response = await _translationService.TranslatePersianToEnglishAsync(clipboardText);
+                    response = await _translationService.TranslatePersianToEnglishAsync(textToTranslate);
                     break;
                 case TranslationType.EnglishToPersian:
-                    response = await _translationService.TranslateEnglishToPersianAsync(clipboardText);
+                    response = await _translationService.TranslateEnglishToPersianAsync(textToTranslate);
                     break;
                 case TranslationType.GrammarFix:
-                    response = await _translationService.FixGrammarAsync(clipboardText);
+                    response = await _translationService.FixGrammarAsync(textToTranslate);
                     break;
                 default:
                     throw new ArgumentException("Invalid translation type");
@@ -109,13 +120,23 @@ public class HotkeyActions
                 if (options.Count > 1)
                 {
                     // Show selection form for multiple options
-                    ShowSelectionForm(options);
+                    ShowSelectionForm(options, hasSelectedText);
                 }
                 else
                 {
-                    // Single option - directly copy to clipboard
+                    // Single option
+                    if (hasSelectedText)
+                    {
+                        // Insert back into the application
+                        await _selectionManager.InsertTextAsync(options[0]);
+                        ShowNotification("Translation Complete", "Text replaced in application");
+                }
+                else
+                {
+                        // Copy to clipboard
                     _clipboardManager.SetClipboardText(options[0], true);
                     ShowNotification("Translation Complete", "Clipboard updated with translation");
+                    }
                 }
             }
             else
@@ -149,7 +170,7 @@ public class HotkeyActions
         return options.Count > 0 ? options : new List<string> { text };
     }
 
-    private void ShowSelectionForm(List<string> options)
+    private void ShowSelectionForm(List<string> options, bool hasSelectedText)
     {
         try
         {
@@ -158,7 +179,8 @@ public class HotkeyActions
                 _configService, 
                 _ttsService, 
                 _languageDetector, 
-                _loggingService);
+                _loggingService,
+                hasSelectedText ? _selectionManager : null);
             selectionForm.ShowDialog();
         }
         catch (Exception ex)

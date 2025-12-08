@@ -32,7 +32,7 @@ public class TtsService : ITtsService
         try
         {
             _loggingService.LogInformation($"Starting {language} TTS playback");
-
+            
             var provider = _providerFactory.GetProvider();
             
             // Generate speech audio file

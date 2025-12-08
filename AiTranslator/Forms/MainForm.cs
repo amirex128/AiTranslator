@@ -658,7 +658,7 @@ public partial class MainForm : Form
             Font = labelFont,
             Height = 20
         };
-
+        
         // Parse result text by %%%%% separator
         var results = ParseTranslationOptions(resultText);
 
@@ -679,22 +679,22 @@ public partial class MainForm : Form
         else
         {
             // Single result - create a single TextBox (backward compatible)
-            var resultTextBox = new TextBox 
-            { 
-                Dock = DockStyle.Fill, 
-                Text = resultText, 
-                Multiline = true, 
-                ReadOnly = true,
-                ScrollBars = ScrollBars.Vertical,
-                Font = font
-            };
+        var resultTextBox = new TextBox 
+        { 
+            Dock = DockStyle.Fill, 
+            Text = resultText, 
+            Multiline = true, 
+            ReadOnly = true,
+            ScrollBars = ScrollBars.Vertical,
+            Font = font
+        };
 
-            // Set RTL if needed
-            var language = _languageDetector.DetectLanguage(resultText);
-            if (language == Language.Persian)
-            {
-                resultTextBox.RightToLeft = RightToLeft.Yes;
-            }
+        // Set RTL if needed
+        var language = _languageDetector.DetectLanguage(resultText);
+        if (language == Language.Persian)
+        {
+            resultTextBox.RightToLeft = RightToLeft.Yes;
+        }
 
             resultsPanel.Controls.Add(resultTextBox);
         }

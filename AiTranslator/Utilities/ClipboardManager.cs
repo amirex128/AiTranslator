@@ -57,5 +57,17 @@ public class ClipboardManager
     {
         return !string.IsNullOrEmpty(_previousClipboardContent);
     }
+
+    public void ClearClipboard()
+    {
+        try
+        {
+            Clipboard.Clear();
+        }
+        catch (Exception)
+        {
+            // Ignore clipboard errors
+        }
+    }
 }
 
