@@ -70,5 +70,11 @@ public class TranslationService : ITranslationService
         var config = _configService.Config.ApiEndpoints.GrammarFix;
         return await _apiProvider.TranslateAsync(config, text, "Grammar Fix", cancellationToken);
     }
+
+    public async Task<TranslationResponse> SuggestSentenceAsync(string text, CancellationToken cancellationToken = default)
+    {
+        var config = _configService.Config.ApiEndpoints.SentenceSuggestion;
+        return await _apiProvider.TranslateAsync(config, text, "Sentence Suggestion", cancellationToken);
+    }
 }
 

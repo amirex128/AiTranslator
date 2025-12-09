@@ -53,5 +53,18 @@ public class ApiEndpoints
         },
         DefaultEndpointIndex = 0
     };
+
+    /// <summary>
+    /// Sentence Suggestion API configuration
+    /// </summary>
+    public TranslationApiConfig SentenceSuggestion { get; set; } = new()
+    {
+        Endpoints = new List<EndpointInfo>
+        {
+            new() { Name = "API 1", Url = "http://127.0.0.1:3001/api/v1/prediction/7c4d66b8-bf41-47df-97e7-e7469cf9b919", TimeoutSeconds = 30 },
+            new() { Name = "API 2", Url = "http://127.0.0.1:3001/api/v1/prediction/813907d2-2a69-48f6-9fe6-11a9c14b0fcc", TimeoutSeconds = 30 }
+        },
+        DefaultEndpointIndex = 0
+    };
 }
 

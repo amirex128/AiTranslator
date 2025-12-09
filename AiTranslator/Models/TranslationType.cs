@@ -4,6 +4,7 @@ public enum TranslationType
 {
     PersianToEnglish,
     EnglishToPersian,
-    GrammarFix
+    GrammarFix,
+    SentenceSuggestion
 }
 

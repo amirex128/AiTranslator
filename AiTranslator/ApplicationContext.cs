@@ -94,6 +94,11 @@ public class ApplicationContext : System.Windows.Forms.ApplicationContext
                 () => _hotkeyActions.Translate(TranslationType.GrammarFix)
             );
 
+            _hotkeyManager.RegisterHotkey(
+                hotkeys.TranslateSentenceSuggestion,
+                () => _hotkeyActions.Translate(TranslationType.SentenceSuggestion)
+            );
+
             // Read text
             _hotkeyManager.RegisterHotkey(
                 hotkeys.ReadPersian,

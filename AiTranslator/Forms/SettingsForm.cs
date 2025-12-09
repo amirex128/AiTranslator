@@ -14,6 +14,7 @@ public class SettingsForm : Form
     private TranslationApiConfigControl faToEnConfigControl = null!;
     private TranslationApiConfigControl grammarFixConfigControl = null!;
     private TranslationApiConfigControl grammarLearnerConfigControl = null!;
+    private TranslationApiConfigControl sentenceSuggestionConfigControl = null!;
     
     // UI Preferences Tab
     private NumericUpDown popupTimeoutNumeric = null!;
@@ -40,6 +41,7 @@ public class SettingsForm : Form
     private HotkeyConfigControl translatePersianToEnglishControl = null!;
     private HotkeyConfigControl translateEnglishToPersianControl = null!;
     private HotkeyConfigControl translateGrammarFixControl = null!;
+    private HotkeyConfigControl translateSentenceSuggestionControl = null!;
     private HotkeyConfigControl readPersianControl = null!;
     private HotkeyConfigControl readEnglishControl = null!;
     
@@ -168,6 +170,15 @@ public class SettingsForm : Form
             y,
             panel);
         grammarLearnerConfigControl.LoadFromConfig();
+        y += 185;
+
+        // Sentence Suggestion
+        sentenceSuggestionConfigControl = new TranslationApiConfigControl(
+            "Sentence Suggestion",
+            config.ApiEndpoints.SentenceSuggestion,
+            y,
+            panel);
+        sentenceSuggestionConfigControl.LoadFromConfig();
 
         tab.Controls.Add(panel);
         return tab;
@@ -577,6 +588,14 @@ public class SettingsForm : Form
             panel);
         y += 70;
 
+        // Translate Sentence Suggestion
+        translateSentenceSuggestionControl = new HotkeyConfigControl(
+            "Translate: Sentence Suggestion",
+            config.Hotkeys.TranslateSentenceSuggestion,
+            y,
+            panel);
+        y += 70;
+
         // Read Persian
         readPersianControl = new HotkeyConfigControl(
             "Read Persian Text",
@@ -646,6 +665,7 @@ public class SettingsForm : Form
         faToEnConfigControl.SaveToConfig();
         grammarFixConfigControl.SaveToConfig();
         grammarLearnerConfigControl.SaveToConfig();
+        sentenceSuggestionConfigControl.SaveToConfig();
 
         // UI Preferences
         config.Ui.PopupAutoCloseSeconds = (int)popupTimeoutNumeric.Value;
@@ -676,6 +696,7 @@ public class SettingsForm : Form
         translatePersianToEnglishControl.SaveToConfig(config.Hotkeys.TranslatePersianToEnglish);
         translateEnglishToPersianControl.SaveToConfig(config.Hotkeys.TranslateEnglishToPersian);
         translateGrammarFixControl.SaveToConfig(config.Hotkeys.TranslateGrammarFix);
+        translateSentenceSuggestionControl.SaveToConfig(config.Hotkeys.TranslateSentenceSuggestion);
         readPersianControl.SaveToConfig(config.Hotkeys.ReadPersian);
         readEnglishControl.SaveToConfig(config.Hotkeys.ReadEnglish);
 

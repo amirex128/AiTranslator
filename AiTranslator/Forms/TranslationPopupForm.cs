@@ -902,6 +902,10 @@ public class TranslationPopupForm : Form
                     response = await _translationService.FixGrammarAsync(sourceTextBox.Text,
                         _cancellationTokenSource.Token);
                     break;
+                case TranslationType.SentenceSuggestion:
+                    response = await _translationService.SuggestSentenceAsync(sourceTextBox.Text,
+                        _cancellationTokenSource.Token);
+                    break;
                 default:
                     throw new ArgumentException("Invalid translation type");
             }

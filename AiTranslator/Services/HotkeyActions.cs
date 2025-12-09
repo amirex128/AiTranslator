@@ -75,6 +75,9 @@ public class HotkeyActions
                 case TranslationType.GrammarFix:
                     response = await _translationService.FixGrammarAsync(selectedText);
                     break;
+                case TranslationType.SentenceSuggestion:
+                    response = await _translationService.SuggestSentenceAsync(selectedText);
+                    break;
                 default:
                     throw new ArgumentException("Invalid translation type");
             }
