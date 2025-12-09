@@ -35,6 +35,7 @@ public class TranslationPopupForm : Form
     private bool _isSelectingBoxToRead = false;
     private bool _isSelectingBoxToInsert = false;
     private bool _isSelectingBoxToLearn = false;
+    private bool _isSelectingBoxToTranslate = false;
     private bool _isSelectionMode = false;
 
     public TranslationPopupForm(
@@ -130,7 +131,7 @@ public class TranslationPopupForm : Form
             ForeColor = Color.FromArgb(0, 120, 215)
         };
 
-        translateButton = CreateButton("Translate", new Point(10, 15), Color.FromArgb(0, 120, 215),
+        translateButton = CreateButton("Translate En to Fa", new Point(10, 15), Color.FromArgb(0, 120, 215),
             OnTranslateButtonClick);
         readButton = CreateButton("Read", new Point(110, 15), Color.FromArgb(0, 120, 215), OnReadButtonClick);
         insertButton = CreateButton("Insert", new Point(210, 15), Color.FromArgb(40, 167, 69), OnInsertButtonClick);
@@ -353,16 +354,8 @@ public class TranslationPopupForm : Form
             if (this.Bottom > screen.WorkingArea.Bottom)
                 this.Top = screen.WorkingArea.Bottom - this.Height;
 
-            // Start translation automatically (only if no pre-translated options)
-            if (preTranslatedOptions == null || preTranslatedOptions.Count == 0)
-            {
-                _ = TranslateAsync();
-            }
-            else
-            {
-                // Pre-filled result: display it immediately
-                DisplayResults(preTranslatedOptions);
-            }
+            // In edit mode, user can manually click "Translate En to Fa" button to translate results
+            // No automatic translation is performed
         }
 
         // Update RTL based on source text
@@ -483,7 +476,25 @@ public class TranslationPopupForm : Form
 
     private async void OnTranslateButtonClick(object? sender, EventArgs e)
     {
-        await TranslateAsync();
+        if (_currentResults.Count == 0)
+            return;
+
+        // If only one result, translate it directly
+        if (_currentResults.Count == 1)
+        {
+            await TranslateToEnglishToPersianAsync(_currentResults[0]);
+            return;
+        }
+
+        // Multiple results - enter selection mode
+        if (!_isSelectingBoxToTranslate)
+        {
+            EnterTranslateSelectionMode();
+        }
+        else
+        {
+            ExitSelectionMode();
+        }
     }
 
     private async void OnReadButtonClick(object? sender, EventArgs e)
@@ -559,11 +570,14 @@ public class TranslationPopupForm : Form
     {
         _isSelectingBoxToRead = true;
         _isSelectingBoxToInsert = false;
+        _isSelectingBoxToLearn = false;
+        _isSelectingBoxToTranslate = false;
 
         readButton.Text = "Cancel";
         readButton.BackColor = Color.Orange;
         insertButton.Enabled = false;
         translateButton.Enabled = false;
+        learnButton.Enabled = false;
 
         titleLabel.Text = "Click on a box to read it";
         titleLabel.ForeColor = Color.Orange;
@@ -577,6 +591,7 @@ public class TranslationPopupForm : Form
         _isSelectingBoxToInsert = true;
         _isSelectingBoxToRead = false;
         _isSelectingBoxToLearn = false;
+        _isSelectingBoxToTranslate = false;
 
         insertButton.Text = "Cancel";
         insertButton.BackColor = Color.Orange;
@@ -596,6 +611,7 @@ public class TranslationPopupForm : Form
         _isSelectingBoxToLearn = true;
         _isSelectingBoxToRead = false;
         _isSelectingBoxToInsert = false;
+        _isSelectingBoxToTranslate = false;
 
         learnButton.Text = "Cancel";
         learnButton.BackColor = Color.Orange;
@@ -610,11 +626,32 @@ public class TranslationPopupForm : Form
         HighlightResultBoxes(true);
     }
 
+    private void EnterTranslateSelectionMode()
+    {
+        _isSelectingBoxToTranslate = true;
+        _isSelectingBoxToRead = false;
+        _isSelectingBoxToInsert = false;
+        _isSelectingBoxToLearn = false;
+
+        translateButton.Text = "Cancel";
+        translateButton.BackColor = Color.Orange;
+        readButton.Enabled = false;
+        insertButton.Enabled = false;
+        learnButton.Enabled = false;
+
+        titleLabel.Text = "Click on a box to translate to Persian";
+        titleLabel.ForeColor = Color.FromArgb(0, 120, 215);
+
+        // Highlight all result boxes
+        HighlightResultBoxes(true);
+    }
+
     private void ExitSelectionMode()
     {
         _isSelectingBoxToRead = false;
         _isSelectingBoxToInsert = false;
         _isSelectingBoxToLearn = false;
+        _isSelectingBoxToTranslate = false;
 
         readButton.Text = "Read";
         readButton.BackColor = Color.FromArgb(0, 120, 215);
@@ -628,6 +665,8 @@ public class TranslationPopupForm : Form
         learnButton.BackColor = Color.FromArgb(138, 43, 226);
         learnButton.Enabled = true;
 
+        translateButton.Text = "Translate En to Fa";
+        translateButton.BackColor = Color.FromArgb(0, 120, 215);
         translateButton.Enabled = true;
 
         ResetTitleLabel();
@@ -874,64 +913,92 @@ public class TranslationPopupForm : Form
         }
     }
 
-    private async Task TranslateAsync()
+    private async Task TranslateToEnglishToPersianAsync(string text)
     {
-        if (string.IsNullOrWhiteSpace(sourceTextBox.Text))
+        if (string.IsNullOrWhiteSpace(text))
             return;
 
         try
         {
-            ShowLoadingMessage();
-            translateButton.Enabled = false;
-            readButton.Enabled = false;
+            ExitSelectionMode();
+
+            if (!this.IsDisposed && !this.Disposing && !titleLabel.IsDisposed)
+            {
+                titleLabel.Text = "Translating to Persian...";
+                titleLabel.ForeColor = Color.FromArgb(0, 120, 215);
+            }
+
+            SetButtonsEnabled(false);
 
             _cancellationTokenSource = new CancellationTokenSource();
-            TranslationResponse response;
-
-            switch (_translationType)
-            {
-                case TranslationType.PersianToEnglish:
-                    response = await _translationService.TranslatePersianToEnglishAsync(sourceTextBox.Text,
-                        _cancellationTokenSource.Token);
-                    break;
-                case TranslationType.EnglishToPersian:
-                    response = await _translationService.TranslateEnglishToPersianAsync(sourceTextBox.Text,
-                        _cancellationTokenSource.Token);
-                    break;
-                case TranslationType.GrammarFix:
-                    response = await _translationService.FixGrammarAsync(sourceTextBox.Text,
-                        _cancellationTokenSource.Token);
-                    break;
-                case TranslationType.SentenceSuggestion:
-                    response = await _translationService.SuggestSentenceAsync(sourceTextBox.Text,
-                        _cancellationTokenSource.Token);
-                    break;
-                default:
-                    throw new ArgumentException("Invalid translation type");
-            }
+            var response = await _translationService.TranslateEnglishToPersianAsync(text, _cancellationTokenSource.Token);
 
             if (response.Success)
             {
-                // Split response by %%%%% separator
-                var results = TranslationHelper.ParseTranslationOptions(response.Text);
-                DisplayResults(results);
+                // Parse response to check for multiple options separated by %%%%%
+                var options = TranslationHelper.ParseTranslationOptions(response.Text);
+
+                if (!this.IsDisposed && !this.Disposing)
+                {
+                    // Create a new TranslationPopupForm to show the translation result
+                    var newPopup = new TranslationPopupForm(
+                        _translationService,
+                        _ttsService,
+                        _languageDetector,
+                        _configService,
+                        _loggingService,
+                        _clipboardManager,
+                        _selectionManager,
+                        _grammarLearnerService);
+
+                    // Show with unified design - selection mode with pre-translated options
+                    newPopup.ShowPopup(text, TranslationType.EnglishToPersian, null, options, false);
+                }
+
+                if (!this.IsDisposed && !this.Disposing && !titleLabel.IsDisposed)
+                {
+                    titleLabel.Text = "✓ Translation completed!";
+                    titleLabel.ForeColor = Color.Green;
+                }
+
+                _loggingService.LogInformation("Translation to Persian completed successfully");
             }
             else
             {
-                ShowErrorMessage($"Error: {response.Error}");
+                if (!this.IsDisposed && !this.Disposing && !titleLabel.IsDisposed)
+                {
+                    titleLabel.Text = $"Error: {response.Error}";
+                    titleLabel.ForeColor = Color.Red;
+                }
+                _loggingService.LogError($"Translation to Persian failed: {response.Error}");
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            _loggingService.LogInformation("Translation to Persian cancelled");
+            if (!this.IsDisposed && !this.Disposing && !titleLabel.IsDisposed)
+            {
+                titleLabel.Text = "Translation cancelled";
+                titleLabel.ForeColor = Color.Orange;
             }
         }
         catch (Exception ex)
         {
-            _loggingService.LogError("Translation error in popup", ex);
-            ShowErrorMessage($"Error: {ex.Message}");
+            _loggingService.LogError("Error translating to Persian in popup", ex);
+            if (!this.IsDisposed && !this.Disposing && !titleLabel.IsDisposed)
+            {
+                titleLabel.Text = $"Error: {ex.Message}";
+                titleLabel.ForeColor = Color.Red;
+            }
         }
         finally
         {
-            translateButton.Enabled = true;
-            readButton.Enabled = true;
+            SetButtonsEnabled(true);
             _cancellationTokenSource?.Dispose();
             _cancellationTokenSource = null;
+
+            // Reset title after delay
+            ResetTitleAfterDelay();
         }
     }
 
@@ -1037,6 +1104,10 @@ public class TranslationPopupForm : Form
                 else if (_isSelectingBoxToLearn)
                 {
                     await LearnGrammarAsync(result);
+                }
+                else if (_isSelectingBoxToTranslate)
+                {
+                    await TranslateToEnglishToPersianAsync(result);
                 }
                 else
                 {
