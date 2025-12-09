@@ -36,8 +36,9 @@ static class Program
             loggingService.LogInformation("Application starting");
 
             var languageDetector = new LanguageDetector();
-            var translationService = new TranslationService(configService, loggingService);
-            var grammarLearnerService = new GrammarLearnerService(configService, loggingService);
+            var notificationService = new NotificationService(configService);
+            var translationService = new TranslationService(configService, loggingService, notificationService);
+            var grammarLearnerService = new GrammarLearnerService(configService, loggingService, notificationService);
             
             // Initialize TTS components
             var ttsCacheManager = new TtsCacheManager(configService, loggingService);
@@ -48,7 +49,6 @@ static class Program
             var hotkeyManager = new HotkeyManager();
             var clipboardManager = new ClipboardManager();
             var selectionManager = new SelectionManager(clipboardManager);
-            var notificationService = new NotificationService(configService);
             
             var hotkeyActions = new HotkeyActions(
                 translationService,

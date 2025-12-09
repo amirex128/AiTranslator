@@ -2,6 +2,7 @@ using System.Net.Http.Json;
 using System.Net.Sockets;
 using System.Text.Json;
 using AiTranslator.Models;
+using AiTranslator.Services;
 
 namespace AiTranslator.Services;
 
@@ -12,11 +13,13 @@ public class TranslationApiProvider
 {
     private readonly HttpClient _httpClient;
     private readonly ILoggingService _loggingService;
+    private readonly INotificationService? _notificationService;
 
-    public TranslationApiProvider(HttpClient httpClient, ILoggingService loggingService)
+    public TranslationApiProvider(HttpClient httpClient, ILoggingService loggingService, INotificationService? notificationService = null)
     {
         _httpClient = httpClient;
         _loggingService = loggingService;
+        _notificationService = notificationService;
     }
 
     /// <summary>
@@ -79,6 +82,11 @@ public class TranslationApiProvider
 
                 _loggingService.LogWarning(
                     $"{operationType} - Endpoint {i + 1}/{endpoints.Count} ({endpointInfo.Name}) failed: {response.Error}. Trying next endpoint...");
+                
+                // Show notification when switching to next API
+                _notificationService?.ShowNotification(
+                    "API Switch",
+                    $"{endpointInfo.Name} failed. Trying next API...");
             }
             catch (OperationCanceledException)
             {
@@ -106,6 +114,11 @@ public class TranslationApiProvider
                 
                 _loggingService.LogWarning(
                     $"{operationType} - Endpoint {i + 1}/{endpoints.Count} ({endpointInfo.Name}) timed out after {endpointInfo.TimeoutSeconds}s. Trying next endpoint...");
+                
+                // Show notification when switching to next API due to timeout
+                _notificationService?.ShowNotification(
+                    "API Timeout",
+                    $"{endpointInfo.Name} timed out ({endpointInfo.TimeoutSeconds}s). Trying next API...");
             }
             catch (HttpRequestException ex)
             {
@@ -123,6 +136,11 @@ public class TranslationApiProvider
                 
                 _loggingService.LogWarning(
                     $"{operationType} - Endpoint {i + 1}/{endpoints.Count} ({endpointInfo.Name}) network error: {ex.Message}. Trying next endpoint...");
+                
+                // Show notification when switching to next API due to network error
+                _notificationService?.ShowNotification(
+                    "API Network Error",
+                    $"{endpointInfo.Name} connection failed. Trying next API...");
             }
             catch (SocketException ex)
             {
@@ -140,6 +158,11 @@ public class TranslationApiProvider
                 
                 _loggingService.LogWarning(
                     $"{operationType} - Endpoint {i + 1}/{endpoints.Count} ({endpointInfo.Name}) connection error: {ex.Message}. Trying next endpoint...");
+                
+                // Show notification when switching to next API due to socket error
+                _notificationService?.ShowNotification(
+                    "API Connection Error",
+                    $"{endpointInfo.Name} connection failed. Trying next API...");
             }
             catch (Exception ex)
             {
@@ -159,6 +182,11 @@ public class TranslationApiProvider
 
                 _loggingService.LogWarning(
                     $"{operationType} - Endpoint {i + 1}/{endpoints.Count} ({endpointInfo.Name}) failed. Trying next endpoint...");
+                
+                // Show notification when switching to next API due to general error
+                _notificationService?.ShowNotification(
+                    "API Error",
+                    $"{endpointInfo.Name} failed. Trying next API...");
             }
         }
 

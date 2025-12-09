@@ -9,7 +9,8 @@ public class TranslationService : ITranslationService
 
     public TranslationService(
         IConfigService configService,
-        ILoggingService loggingService)
+        ILoggingService loggingService,
+        INotificationService? notificationService = null)
     {
         _configService = configService;
         
@@ -49,7 +50,7 @@ public class TranslationService : ITranslationService
             Timeout = TimeSpan.FromHours(24) // Very large timeout, actual timeout is per endpoint
         };
         
-        _apiProvider = new TranslationApiProvider(httpClient, loggingService);
+        _apiProvider = new TranslationApiProvider(httpClient, loggingService, notificationService);
     }
 
     public async Task<TranslationResponse> TranslateEnglishToPersianAsync(string text, CancellationToken cancellationToken = default)

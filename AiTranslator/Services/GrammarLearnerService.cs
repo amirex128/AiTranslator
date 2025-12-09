@@ -17,7 +17,8 @@ public class GrammarLearnerService : IGrammarLearnerService
 
     public GrammarLearnerService(
         IConfigService configService,
-        ILoggingService loggingService)
+        ILoggingService loggingService,
+        INotificationService? notificationService = null)
     {
         _configService = configService;
         _loggingService = loggingService;
@@ -58,7 +59,7 @@ public class GrammarLearnerService : IGrammarLearnerService
             Timeout = TimeSpan.FromHours(24) // Very large timeout, actual timeout is per endpoint
         };
         
-        _apiProvider = new TranslationApiProvider(httpClient, loggingService);
+        _apiProvider = new TranslationApiProvider(httpClient, loggingService, notificationService);
     }
 
     public async Task<GrammarLearnerResponse?> LearnGrammarAsync(string text, CancellationToken cancellationToken = default)
