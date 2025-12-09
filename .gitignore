@@ -98,3 +98,10 @@ $RECYCLE.BIN/
 
 # Windows shortcuts
 *.lnk
+
+./final/
+./final
+./final/*
+final/AiTranslator.exe
+final/AiTranslator.pdb
+final/appsettings.json

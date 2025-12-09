@@ -4,7 +4,7 @@ A comprehensive Windows desktop application for AI-powered translation with glob
 
 ## Features
 ```
-dotnet publish -c Release -r win-x64 --self-contained -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o ..\final
+dotnet publish -c Release -r win-x64 --self-contained -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o .\final\
 ```
 
 ### Core Translation Features

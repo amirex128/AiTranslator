@@ -16,16 +16,13 @@ jobs:
     - name: Setup .NET
       uses: actions/setup-dotnet@v4
       with:
-        dotnet-version: '8.0.x'  # .NET 8 SDK (supports net10.0-windows target framework)
+        dotnet-version: '10.0.x'  # .NET 10 SDK for net10.0-windows target framework
         
     - name: Restore dependencies
-      run: dotnet restore AiTranslator/AiTranslator.csproj
-      
-    - name: Build
-      run: dotnet build AiTranslator/AiTranslator.csproj -c Release --no-restore
+      run: dotnet restore AiTranslator/AiTranslator.csproj -r win-x64
       
     - name: Publish
-      run: dotnet publish AiTranslator/AiTranslator.csproj -c Release -r win-x64 --self-contained -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o final --no-build
+      run: dotnet publish AiTranslator/AiTranslator.csproj -c Release -r win-x64 --self-contained -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o final
       
     - name: Get version from tag
       id: get_version
@@ -58,3 +55,4 @@ jobs:
         prerelease: false
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
