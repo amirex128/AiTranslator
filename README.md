@@ -3,6 +3,9 @@
 A comprehensive Windows desktop application for AI-powered translation with global hotkey support, system tray integration, and text-to-speech capabilities.
 
 ## Features
+```
+dotnet publish -c Release -r win-x64 --self-contained -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o ..\final
+```
 
 ### Core Translation Features
 - **Three Translation Modes**:
