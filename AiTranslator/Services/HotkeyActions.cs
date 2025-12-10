@@ -15,6 +15,10 @@ public class HotkeyActions
     private readonly ClipboardManager _clipboardManager;
     private readonly SelectionManager _selectionManager;
     private readonly IGrammarLearnerService _grammarLearnerService;
+    
+    // Track the current popup form to close it before opening a new one
+    private TranslationPopupForm? _currentPopupForm;
+    private readonly object _popupLock = new object();
 
     public HotkeyActions(
         ITranslationService translationService,
@@ -39,7 +43,7 @@ public class HotkeyActions
     }
 
     /// <summary>
-    /// Unified translation method that uses only selected text (no clipboard fallback)
+    /// Unified translation method that uses clipboard content
     /// </summary>
     public async void Translate(TranslationType type)
     {
@@ -47,17 +51,18 @@ public class HotkeyActions
         
         try
         {
-            // Get selected text - this is the only source
-            var selectedText = await _selectionManager.GetSelectedTextAsync();
+            // Close any existing popup form to prevent showing old data
+            await CloseExistingPopupFormAsync();
             
-            // If no text selected, show notification and return
-            if (string.IsNullOrWhiteSpace(selectedText))
+            // Get text from clipboard - read it fresh each time
+            var clipboardText = await _selectionManager.GetSelectedTextAsync();
+            
+            // If clipboard is empty, show notification and return
+            if (string.IsNullOrWhiteSpace(clipboardText))
             {
-                ShowNotification("No text selected", "Please select text in the application first");
+                ShowNotification("Clipboard is empty", "Please copy text to clipboard first");
                 return;
             }
-
-            var hasSelectedText = true; // Always true since we only use selected text
 
             loadingPopup = new LoadingPopupForm();
             loadingPopup.ShowLoading("Translating...");
@@ -67,16 +72,16 @@ public class HotkeyActions
             switch (type)
             {
                 case TranslationType.PersianToEnglish:
-                    response = await _translationService.TranslatePersianToEnglishAsync(selectedText);
+                    response = await _translationService.TranslatePersianToEnglishAsync(clipboardText);
                     break;
                 case TranslationType.EnglishToPersian:
-                    response = await _translationService.TranslateEnglishToPersianAsync(selectedText);
+                    response = await _translationService.TranslateEnglishToPersianAsync(clipboardText);
                     break;
                 case TranslationType.GrammarFix:
-                    response = await _translationService.FixGrammarAsync(selectedText);
+                    response = await _translationService.FixGrammarAsync(clipboardText);
                     break;
                 case TranslationType.SentenceSuggestion:
-                    response = await _translationService.SuggestSentenceAsync(selectedText);
+                    response = await _translationService.SuggestSentenceAsync(clipboardText);
                     break;
                 default:
                     throw new ArgumentException("Invalid translation type");
@@ -92,17 +97,8 @@ public class HotkeyActions
                 // Parse response to check for multiple options separated by %%%%%
                 var options = TranslationHelper.ParseTranslationOptions(response.Text);
 
-                if (options.Count > 1)
-                {
-                    // Multiple options: show unified popup form in selection mode
-                    ShowUnifiedPopupForm(options, true, type, selectedText);
-                }
-                else
-                {
-                    // Single option: insert directly into the application
-                    await _selectionManager.InsertTextAsync(options[0]);
-                    ShowNotification("Translation Complete", "Text replaced in application");
-                }
+                // Always show unified popup form so user can use "Translate En to Fa" button
+                ShowUnifiedPopupForm(options, true, type, clipboardText);
             }
             else
             {
@@ -122,19 +118,33 @@ public class HotkeyActions
     }
 
 
-    private void ShowUnifiedPopupForm(List<string> options, bool hasSelectedText, TranslationType type, string sourceText)
+    private async void ShowUnifiedPopupForm(List<string> options, bool hasSelectedText, TranslationType type, string sourceText)
     {
         try
         {
-            var popup = new TranslationPopupForm(
-                _translationService,
-                _ttsService,
-                _languageDetector,
-                _configService,
-                _loggingService,
-                _clipboardManager,
-                _selectionManager, // Always pass SelectionManager since we only use selected text
-                _grammarLearnerService); // Pass GrammarLearnerService for Learn button
+            // Close any existing popup form first
+            await CloseExistingPopupFormAsync();
+            
+            TranslationPopupForm? popup = null;
+            
+            lock (_popupLock)
+            {
+                popup = new TranslationPopupForm(
+                    _translationService,
+                    _ttsService,
+                    _languageDetector,
+                    _configService,
+                    _loggingService,
+                    _clipboardManager,
+                    _selectionManager,
+                    _grammarLearnerService);
+                
+                // Store reference to the new popup form
+                _currentPopupForm = popup;
+            }
+            
+            // Handle form closed event to clear reference
+            popup.FormClosed += OnPopupFormClosed;
             
             // Show with unified design - selection mode with pre-translated options
             popup.ShowPopup(sourceText, type, null, options, true);
@@ -143,6 +153,78 @@ public class HotkeyActions
         {
             _loggingService.LogError("Error showing unified popup form", ex);
             ShowNotification("Error", $"Failed to show translation options: {ex.Message}");
+        }
+    }
+    
+    private void OnPopupFormClosed(object? sender, FormClosedEventArgs e)
+    {
+        lock (_popupLock)
+        {
+            if (_currentPopupForm == sender)
+            {
+                _currentPopupForm = null;
+            }
+        }
+    }
+    
+    /// <summary>
+    /// Closes any existing popup form to prevent showing old data
+    /// </summary>
+    private async Task CloseExistingPopupFormAsync()
+    {
+        TranslationPopupForm? formToClose = null;
+        
+        lock (_popupLock)
+        {
+            if (_currentPopupForm != null && !_currentPopupForm.IsDisposed)
+            {
+                formToClose = _currentPopupForm;
+                _currentPopupForm = null;
+            }
+        }
+        
+        if (formToClose != null)
+        {
+            try
+            {
+                // Unsubscribe from events to prevent memory leaks
+                formToClose.FormClosed -= OnPopupFormClosed;
+                
+                // Close and dispose on UI thread
+                if (formToClose.InvokeRequired)
+                {
+                    formToClose.Invoke(new Action(() =>
+                    {
+                        try
+                        {
+                            if (!formToClose.IsDisposed)
+                            {
+                                formToClose.Close();
+                                formToClose.Dispose();
+                            }
+                        }
+                        catch
+                        {
+                            // Ignore disposal errors
+                        }
+                    }));
+                }
+                else
+                {
+                    if (!formToClose.IsDisposed)
+                    {
+                        formToClose.Close();
+                        formToClose.Dispose();
+                    }
+                }
+                
+                // Give it a moment to fully close (non-blocking)
+                await Task.Delay(50);
+            }
+            catch (Exception ex)
+            {
+                _loggingService.LogError("Error closing existing popup form", ex);
+            }
         }
     }
 

@@ -279,11 +279,53 @@ public class TranslationPopupForm : Form
     }
 
     /// <summary>
+    /// Clears all previous state to prevent showing old data
+    /// </summary>
+    private void ClearPreviousState()
+    {
+        try
+        {
+            // Stop all timers
+            autoCloseTimer?.Stop();
+            progressTimer?.Stop();
+            
+            // Clear cancellation token
+            _cancellationTokenSource?.Cancel();
+            _cancellationTokenSource?.Dispose();
+            _cancellationTokenSource = null;
+            
+            // Clear results
+            resultsPanel.Controls.Clear();
+            _currentResults.Clear();
+            
+            // Reset selection modes
+            _isSelectingBoxToRead = false;
+            _isSelectingBoxToInsert = false;
+            _isSelectingBoxToLearn = false;
+            _isSelectingBoxToTranslate = false;
+            _isSelectionMode = false;
+            
+            // Clear source text
+            sourceTextBox.Text = string.Empty;
+            
+            // Reset title
+            ResetTitleLabel();
+        }
+        catch
+        {
+            // Silent fail
+        }
+    }
+
+    /// <summary>
     /// Shows popup with unified design for both edit and selection modes
     /// </summary>
     public void ShowPopup(string text, TranslationType type, Point? location = null,
         List<string>? preTranslatedOptions = null, bool hasSelectedText = false)
     {
+        // Clear all previous state to prevent showing old data
+        ClearPreviousState();
+        
         _translationType = type;
 
         // Determine if we're in selection mode (pre-translated options provided)
@@ -303,7 +345,7 @@ public class TranslationPopupForm : Form
 
             // Button visibility
             translateButton.Visible = true;
-            translateButton.Enabled = false; // Disabled in selection mode
+            translateButton.Enabled = true; // Enabled so user can translate selected results
             insertButton.Visible = _selectionManager != null && hasSelectedText;
             learnButton.Visible = _grammarLearnerService != null;
 
@@ -354,8 +396,18 @@ public class TranslationPopupForm : Form
             if (this.Bottom > screen.WorkingArea.Bottom)
                 this.Top = screen.WorkingArea.Bottom - this.Height;
 
-            // In edit mode, user can manually click "Translate En to Fa" button to translate results
-            // No automatic translation is performed
+            // In edit mode, if no pre-translated options, show empty results panel
+            // User can manually click "Translate En to Fa" button to translate source text
+            if (preTranslatedOptions == null || preTranslatedOptions.Count == 0)
+            {
+                resultsPanel.Controls.Clear();
+                _currentResults.Clear();
+            }
+            else
+            {
+                // Pre-filled result: display it immediately
+                DisplayResults(preTranslatedOptions);
+            }
         }
 
         // Update RTL based on source text
@@ -384,35 +436,50 @@ public class TranslationPopupForm : Form
 
         // Use a small delay to check if mouse is actually leaving the form
         // This prevents false triggers when moving between controls
-        var timer = new System.Windows.Forms.Timer { Interval = 100 };
-        timer.Tick += (s, args) =>
+        System.Windows.Forms.Timer? timer = null;
+        try
         {
-            if (this.IsDisposed || this.Disposing)
+            timer = new System.Windows.Forms.Timer { Interval = 100 };
+            timer.Tick += (s, args) =>
             {
-                timer.Stop();
-                timer.Dispose();
-                return;
-            }
-
-            try
-            {
-                var mousePos = this.PointToClient(Cursor.Position);
-                if (!this.ClientRectangle.Contains(mousePos))
+                if (this.IsDisposed || this.Disposing)
                 {
-                    isMouseOver = false;
-                    // Restart timer when mouse leaves
-                    StartAutoCloseTimer();
+                    timer?.Stop();
+                    timer?.Dispose();
+                    return;
                 }
-            }
-            catch (ObjectDisposedException)
-            {
-                // Form was disposed, ignore
-            }
 
-            timer.Stop();
-            timer.Dispose();
-        };
-        timer.Start();
+                try
+                {
+                    var mousePos = this.PointToClient(Cursor.Position);
+                    if (!this.ClientRectangle.Contains(mousePos))
+                    {
+                        isMouseOver = false;
+                        // Restart timer when mouse leaves
+                        StartAutoCloseTimer();
+                    }
+                }
+                catch (ObjectDisposedException)
+                {
+                    // Form was disposed, ignore
+                }
+                catch
+                {
+                    // Ignore other errors
+                }
+                finally
+                {
+                    timer?.Stop();
+                    timer?.Dispose();
+                }
+            };
+            timer.Start();
+        }
+        catch
+        {
+            // If timer creation fails, just ignore
+            timer?.Dispose();
+        }
     }
 
     private void StartAutoCloseTimer()
@@ -476,25 +543,34 @@ public class TranslationPopupForm : Form
 
     private async void OnTranslateButtonClick(object? sender, EventArgs e)
     {
-        if (_currentResults.Count == 0)
+        // If we have results, translate one of them
+        if (_currentResults.Count > 0)
+        {
+            // If only one result, translate it directly
+            if (_currentResults.Count == 1)
+            {
+                await TranslateToEnglishToPersianAsync(_currentResults[0]);
+                return;
+            }
+
+            // Multiple results - enter selection mode
+            if (!_isSelectingBoxToTranslate)
+            {
+                EnterTranslateSelectionMode();
+            }
+            else
+            {
+                ExitSelectionMode();
+            }
+            return;
+        }
+
+        // If no results, translate the source text
+        if (string.IsNullOrWhiteSpace(sourceTextBox.Text))
             return;
 
-        // If only one result, translate it directly
-        if (_currentResults.Count == 1)
-        {
-            await TranslateToEnglishToPersianAsync(_currentResults[0]);
-            return;
-        }
-
-        // Multiple results - enter selection mode
-        if (!_isSelectingBoxToTranslate)
-        {
-            EnterTranslateSelectionMode();
-        }
-        else
-        {
-            ExitSelectionMode();
-        }
+        // Translate source text to Persian
+        await TranslateToEnglishToPersianAsync(sourceTextBox.Text);
     }
 
     private async void OnReadButtonClick(object? sender, EventArgs e)
@@ -1155,29 +1231,44 @@ public class TranslationPopupForm : Form
             var originalColor = resultBox.BackColor;
             resultBox.BackColor = Color.FromArgb(200, 255, 200); // Green flash
 
-            var timer = new System.Windows.Forms.Timer { Interval = 300 };
-            timer.Tick += (s, e) =>
+            System.Windows.Forms.Timer? timer = null;
+            try
             {
-                if (this.IsDisposed || this.Disposing || resultBox.IsDisposed)
+                timer = new System.Windows.Forms.Timer { Interval = 300 };
+                timer.Tick += (s, e) =>
                 {
-                    timer.Stop();
-                    timer.Dispose();
-                    return;
-                }
+                    if (this.IsDisposed || this.Disposing || resultBox.IsDisposed)
+                    {
+                        timer?.Stop();
+                        timer?.Dispose();
+                        return;
+                    }
 
-                try
-                {
-                    resultBox.BackColor = originalColor;
-                }
-                catch (ObjectDisposedException)
-                {
-                    // Control was disposed, ignore
-                }
-
-                timer.Stop();
-                timer.Dispose();
-            };
-            timer.Start();
+                    try
+                    {
+                        resultBox.BackColor = originalColor;
+                    }
+                    catch (ObjectDisposedException)
+                    {
+                        // Control was disposed, ignore
+                    }
+                    catch
+                    {
+                        // Ignore other errors
+                    }
+                    finally
+                    {
+                        timer?.Stop();
+                        timer?.Dispose();
+                    }
+                };
+                timer.Start();
+            }
+            catch
+            {
+                // If timer creation fails, just ignore
+                timer?.Dispose();
+            }
 
             // Update title if in selection mode
             if (_isSelectionMode && !titleLabel.IsDisposed)
@@ -1185,31 +1276,46 @@ public class TranslationPopupForm : Form
                 titleLabel.Text = "✓ Copied to clipboard! Click another option or close this window.";
                 titleLabel.ForeColor = Color.FromArgb(0, 150, 0);
 
-                var resetTimer = new System.Windows.Forms.Timer { Interval = 2000 };
-                resetTimer.Tick += (s2, e2) =>
+                System.Windows.Forms.Timer? resetTimer = null;
+                try
                 {
-                    if (this.IsDisposed || this.Disposing || titleLabel.IsDisposed)
+                    resetTimer = new System.Windows.Forms.Timer { Interval = 2000 };
+                    resetTimer.Tick += (s2, e2) =>
                     {
-                        resetTimer.Stop();
-                        resetTimer.Dispose();
-                        return;
-                    }
+                        if (this.IsDisposed || this.Disposing || titleLabel.IsDisposed)
+                        {
+                            resetTimer?.Stop();
+                            resetTimer?.Dispose();
+                            return;
+                        }
 
-                    try
-                    {
-                        titleLabel.Text =
-                            "Multiple translation options found. Click on any option to copy to clipboard:";
-                        titleLabel.ForeColor = Color.FromArgb(0, 120, 215);
-                    }
-                    catch (ObjectDisposedException)
-                    {
-                        // Control was disposed, ignore
-                    }
-
-                    resetTimer.Stop();
-                    resetTimer.Dispose();
-                };
-                resetTimer.Start();
+                        try
+                        {
+                            titleLabel.Text =
+                                "Multiple translation options found. Click on any option to copy to clipboard:";
+                            titleLabel.ForeColor = Color.FromArgb(0, 120, 215);
+                        }
+                        catch (ObjectDisposedException)
+                        {
+                            // Control was disposed, ignore
+                        }
+                        catch
+                        {
+                            // Ignore other errors
+                        }
+                        finally
+                        {
+                            resetTimer?.Stop();
+                            resetTimer?.Dispose();
+                        }
+                    };
+                    resetTimer.Start();
+                }
+                catch
+                {
+                    // If timer creation fails, just ignore
+                    resetTimer?.Dispose();
+                }
             }
 
             _loggingService.LogInformation("Result copied to clipboard from popup");
